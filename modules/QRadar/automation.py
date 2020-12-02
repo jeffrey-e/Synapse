@@ -45,14 +45,15 @@ class Automation():
                 logger.info('Case {} has been marked as resolved'.format(self.case_id))
 
             if self.case_id:
-                if 'offenseId' in self.webhook:
-                    self.logger.debug("Closing offense {} for case {}".format(self.webhook.offenseId), self.case_id))
+                if hasattr(self.webhook, 'offenseId'):
+                    logger.info("Closing offense {} for case {}".format(self.webhook.offenseId, self.case_id))
                     self.QRadarConnector.closeOffense(self.webhook.offenseId)
 
-                elif 'offenseIds' in self.webhook:
+                elif len(self.webhook.offenseIds) > 0:
                     # Close offense for every linked offense
+                    logger.info("Found multiple offenses {} for case {}".format(self.webhook.offenseIds, self.case_id))
                     for offenseId in self.webhook.offenseIds:
-                        self.logger.debug("Closing offense {} for case {}".format(offenseId, self.case_id))
+                        logger.info("Closing offense {} for case {}".format(offenseId, self.case_id))
                         self.QRadarConnector.closeOffense(offenseId)
 
             self.report_action = 'closeOffense'

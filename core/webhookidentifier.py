@@ -502,16 +502,17 @@ class Webhook:
         """
 
         if self.isFromAlert(esCaseId):
-            if self.alert and self.alert['source'] == 'QRadar_Offenses':
+            if hasattr(self, 'alert') and self.alert['source'] == 'QRadar_Offenses':
                 # case opened from alert
                 # and from QRadar
                 self.offenseId = self.alert['sourceRef']
                 return True
-            elif self.alerts:
+            elif hasattr(self, 'alerts'):
+                self.offenseIds = []
                 for alert in self.alerts:
                     if alert['source'] == 'QRadar_Offenses':
-                        self.offenseIds = alert['sourceRef']
-                if len(self.offenseIds > 0):
+                        self.offenseIds.append(alert['sourceRef'])
+                if len(self.offenseIds) > 0:
                     return True
             else:
                 # case opened from an alert but
