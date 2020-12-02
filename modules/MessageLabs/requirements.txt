@@ -1,0 +1,2 @@
+-i https://pypi.org/simple
+msal==1.6.0
