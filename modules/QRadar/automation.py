@@ -45,14 +45,15 @@ class Automation():
                 logger.info('Case {} has been marked as resolved'.format(self.case_id))
 
             if self.case_id:
-                # Find linked alerts
-                self.query = dict()
-                self.query['case'] = self.case_id
-                self.alerts = self.theHiveConnector.findAlert(self.query)
+                if 'offenseId' in self.webhook:
+                    self.logger.debug("Closing offense {} for case {}".format(self.webhook.offenseId), self.case_id))
+                    self.QRadarConnector.closeOffense(self.webhook.offenseId)
 
-                # Close offense for every linked alert
-                for alert in self.alerts:
-                    self.QRadarConnector.closeOffense(alert['sourceRef'])
+                elif 'offenseIds' in self.webhook:
+                    # Close offense for every linked offense
+                    for offenseId in self.webhook.offenseIds:
+                        self.logger.debug("Closing offense {} for case {}".format(offenseId, self.case_id))
+                        self.QRadarConnector.closeOffense(offenseId)
 
             self.report_action = 'closeOffense'
 
