@@ -29,9 +29,6 @@ class Webhook:
         self.id = hashlib.sha1(json.dumps(webhookData).encode('utf-8')).hexdigest()
         self.data = webhookData
         self.theHiveConnector = TheHiveConnector(cfg)
-        # if the webhook is related to a QRadar offense, the offenseid will be in
-        # this attribute
-        self.offenseId = ''
 
     def isAlert(self):
         """
