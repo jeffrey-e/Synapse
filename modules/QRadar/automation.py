@@ -8,18 +8,18 @@ from modules.TheHive.connector import TheHiveConnector
 from modules.Cortex.connector import CortexConnector
 from modules.QRadar.connector import QRadarConnector
 
-#Load required object models
+# Load required object models
 from thehive4py.models import Case, CustomFieldHelper, CaseObservable, CaseTask
 
 logger = logging.getLogger(__name__)
 
 current_time = 0
 
-#When no condition is match, the default action is None
+# When no condition is match, the default action is None
 report_action = 'None'
 
 class Automation():
-    
+
     def __init__(self, webhook, cfg):
         logger.info('Initiating QRadarAutomation')
         self.TheHiveConnector = TheHiveConnector(cfg)
@@ -27,16 +27,27 @@ class Automation():
         self.webhook = webhook
         self.cfg = cfg
         self.report_action = report_action
-    
+
     def parse_hooks(self):
-        #Close offenses in QRadar
+        # Close offenses in QRadar
         if self.webhook.isClosedQRadarCase() or self.webhook.isDeletedQRadarCase() or self.webhook.isQRadarAlertMarkedAsRead():
             if self.webhook.data['operation'] == 'Delete':
-                self.case_id = self.webhook.data['objectId']
+                self.alert_id = self.webhook.data['objectId']
+                logger.info('Alert {} has been marked as read'.format(self.alert_id))
             else:
                 self.case_id = self.webhook.data['object']['id']
-            logger.info('Case {} has been marked as resolved'.format(self.case_id))
-            self.QRadarConnector.closeOffense(self.webhook.offenseId) 
+                logger.info('Case {} has been marked as resolved'.format(self.case_id))
+
+            if self.case_id:
+                # Find linked alerts
+                self.query = dict()
+                self.query['case'] = self.case_id
+                self.alerts = self.theHiveConnector.findAlert(self.query)
+
+                # Close offense for every linked alert
+                for alert in self.alerts:
+                    self.QRadarConnector.closeOffense(alert['sourceRef'])
+
             self.report_action = 'closeOffense'
-        
+
         return self.report_action
