@@ -8,6 +8,9 @@ Dockerfile-Custom
 /conf/automation/*
 !/conf/automation/*.sample.yml
 
+#Modules
+/modules/MessageLabs/phishing_tracker
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
