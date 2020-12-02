@@ -44,7 +44,7 @@ class Automation():
                 self.case_id = self.webhook.data['object']['id']
                 logger.info('Case {} has been marked as resolved'.format(self.case_id))
 
-            if self.case_id:
+            if hasattr(self, 'case_id'):
                 if hasattr(self.webhook, 'offenseId'):
                     logger.info("Closing offense {} for case {}".format(self.webhook.offenseId, self.case_id))
                     self.QRadarConnector.closeOffense(self.webhook.offenseId)

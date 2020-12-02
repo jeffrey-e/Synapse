@@ -29,6 +29,7 @@ class Webhook:
         self.id = hashlib.sha1(json.dumps(webhookData).encode('utf-8')).hexdigest()
         self.data = webhookData
         self.theHiveConnector = TheHiveConnector(cfg)
+        self.offenseIds = []
 
     def isAlert(self):
         """
@@ -444,11 +445,12 @@ class Webhook:
         self.logger.debug('%s.isClosedQRadarCase starts', __name__)
 
         try:
-            if self.isCase() and self.isClosed() and not self.isMergedInto():
+            if self.isCase() and self.isClosed():
                 # searching in alerts if the case comes from a QRadar alert
                 esCaseId = self.data['objectId']
                 if self.fromQRadar(esCaseId):
                     return True
+
             else:
                 # not a case or have not been closed when
                 # when the webhook has been issued
@@ -505,7 +507,6 @@ class Webhook:
                 self.offenseId = self.alert['sourceRef']
                 return True
             elif hasattr(self, 'alerts'):
-                self.offenseIds = []
                 for alert in self.alerts:
                     if alert['source'] == 'QRadar_Offenses':
                         self.offenseIds.append(alert['sourceRef'])
