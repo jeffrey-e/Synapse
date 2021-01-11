@@ -115,7 +115,7 @@ class Webhook:
 
         self.logger.debug('%s.isNew starts', __name__)
 
-        if self.data['operation'] == 'Creation':
+        if self.data['operation'].lower() in ['creation', 'create']:
             return True
         else:
             return False
@@ -130,7 +130,7 @@ class Webhook:
 
         self.logger.debug('%s.isUpdate starts', __name__)
 
-        if self.data['operation'] == 'Update':
+        if self.data['operation'].lower() == 'update':
             return True
         else:
             return False
@@ -151,6 +151,9 @@ class Webhook:
             else:
                 return False
         except KeyError:
+            # Difference in TH4
+            if self.data['details'].get('read', False):
+                return True
             # when the alert is ignored (ignore new updates), the webhook does
             # not have the status key, this exception handles that
             return False
@@ -191,7 +194,7 @@ class Webhook:
 
         self.logger.debug('%s.isDeleted starts', __name__)
 
-        if self.data['operation'] == 'Delete':
+        if self.data['operation'].lower() == 'delete':
             return True
         else:
             return False
@@ -562,7 +565,8 @@ class Webhook:
         """
 
         self.logger.debug('%s.isAzureSentinelAlertImported starts', __name__)
-
+        if (self.isNewCase() and self.isAzureSentinel()):
+            return True
         if (self.isImportedAlert() and self.isAzureSentinel()):
             return True
         else:
@@ -580,12 +584,13 @@ class Webhook:
             :rtype: bool
         """
 
-        query = dict()
-        query['case'] = esCaseId
+        self.logger.debug('%s.fromAzureSentinel starts', __name__)
+
+        query = {'case': esCaseId}
         results = self.theHiveConnector.findAlert(query)
 
-        if len(results) == 1:
-            # should only have one hit
+        if len(results) > 0:
+            # should only have one or more hits
             if results[0]['source'] == 'Azure_Sentinel_incidents':
                 # case opened from incident
                 # and from AzureSentinel

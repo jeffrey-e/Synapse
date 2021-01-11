@@ -2,7 +2,7 @@ import logging
 import requests
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dateutil import tz
 
 class AzureSentinelConnector:
@@ -27,9 +27,26 @@ class AzureSentinelConnector:
         self.tenant_id = self.cfg.get('AzureSentinel', 'tenant_id')
         self.client_id = self.cfg.get('AzureSentinel', 'client_id')
         self.client_secret = self.cfg.get('AzureSentinel', 'client_secret')
-        self.base_url = 'https://management.azure.com/subscriptions/{}/resourceGroups/{}/providers/Microsoft.OperationalInsights/workspaces/{}/providers/Microsoft.SecurityInsights'.format(self.subscription_id, self.resource_group, self.workspace)
+        self.lookback = self.cfg.get('AzureSentinel', 'lookback', fallback=False)
+        self.base_url = f'https://management.azure.com/subscriptions/{self.subscription_id}/resourceGroups/{self.resource_group}/providers/Microsoft.OperationalInsights/workspaces/{self.workspace}/providers/Microsoft.SecurityInsights'
 
         self.bearer_token = self.getBearerToken()
+
+        if self.lookback:
+            # try:
+            units = self.lookback[-1]
+            if units in "hH":
+                self.lookback = timedelta(hours=int(self.lookback[:-1]))
+                self.logger.debug(f"Azure Sentinel lookback set to {self.lookback.days} days and {int(self.lookback.seconds/60/60)} hours")
+            elif units in "dD":
+                self.lookback = timedelta(days=int(self.lookback[:-1]))
+                self.logger.debug(f"Azure Sentinel lookback set to {self.lookback.days} days")
+            else:
+                raise ValueError(self.response.content)
+            # except Exception as e:
+            #     self.logger.error(f"Could not calculate Sentinel timedelta from lookback: {self.lookback}. Ignoring lookback...", exc_info=True)
+            #     self.lookback = False
+
 
     def getBearerToken(self):
         self.url = 'https://login.microsoftonline.com/{}/oauth2/token'.format(self.tenant_id)
@@ -50,7 +67,7 @@ class AzureSentinelConnector:
         #Example: 2020-10-22T12:55:27.9576603Z << can also be six milliseconds. Cropping the timestamp therefore...
         #Define timezones
         current_timezone = tz.gettz('UTC')
-        
+
         #Retrieve timezone from config or use local time (None)
         configured_timezone = self.cfg.get('AzureSentinel', 'timezone', fallback=None)
         new_timezone = tz.gettz(configured_timezone)
@@ -64,7 +81,6 @@ class AzureSentinelConnector:
         ntz_formatted_time = formatted_time.astimezone(new_timezone)
 
         if target == "description":
-
             #Create a string from time object
             string_formatted_time = ntz_formatted_time.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -154,7 +170,7 @@ class AzureSentinelConnector:
         except Exception as e:
             self.logger.error('Failed to update incident %s', incidentId, exc_info=True)
             raise
-    
+
     def closeIncident(self, incidentId, classification, classification_comment):
         # Variable required for handling regeneration of the Bearer token
         self.bearer_token_regenerated = False
@@ -215,7 +231,15 @@ class AzureSentinelConnector:
         # Empty array for incidents
         self.incidents = []
 
-        self.url = self.base_url + '/incidents?api-version=2020-01-01&%24filter=(properties%2Fstatus%20eq%20\'New\'%20or%20properties%2Fstatus%20eq%20\'Active\')&%24orderby=properties%2FcreatedTimeUtc%20desc'
+        # Query only for recently updated incidents if lookback is set
+        query_filter = "(properties/status eq 'New' or properties/status eq 'Active')"
+        if self.lookback:
+            lookback_date = datetime.utcnow() - self.lookback
+            query_filter += f" and (properties/lastModifiedTimeUtc ge {lookback_date.isoformat()}Z)"
+
+        order_by = "properties/createdTimeUtc desc"
+
+        self.url = f'{self.base_url}/incidents?api-version=2020-01-01&$filter={requests.utils.quote(query_filter)}&$orderby={requests.utils.quote(order_by)}'
 
         # Adding empty header as parameters are being sent in payload
         self.headers = {
@@ -249,13 +273,14 @@ class AzureSentinelConnector:
             self.logger.error('Failed to retrieve incidents', exc_info=True)
             raise
 
+        self.logger.debug(f'{len(self.incidents)} AzureSentinel incidents retrieved')
         return self.incidents
 
     def getRule(self, uri):
         #Variable required for handling regeneration of the Bearer token
         self.bearer_token_regenerated = False
 
-        self.url = 'https://management.azure.com{}?api-version={}'.format(uri, "2020-01-01")
+        self.url = f'https://management.azure.com{uri}?api-version=2020-01-01'
 
         # Adding empty header as parameters are being sent in payload
         self.headers = {
@@ -265,12 +290,40 @@ class AzureSentinelConnector:
         try:
             self.response = requests.get(self.url, headers=self.headers)
             return self.response.json()
-        except Exception as e:
+        except ConnectionRefusedError as e:
             #Supporting regeneration of the token automatically. Will try once and will fail after
             if self.response.status_code == 401 and not self.bearer_token_regenerated:
                 self.logger.info("Bearer token expired. Generating a new one")
                 self.bearer_token = self.getBearerToken()
                 self.bearer_token_regenerated = True
-                self.getIncidents()
+                self.getRule(uri)
+            else:
+                self.logger.error("Could not retrieve rule information from Azure Sentinel:", exc_info=True)
+        except Exception as e:
+            self.logger.error(f'Failed to retrieve rule', exc_info=True)
 
-            self.logger.error("Could not retrieve rule information from Azure Sentinel: {}".format(e))
+    def getEntities(self, uri):
+        #Variable required for handling regeneration of the Bearer token
+        self.bearer_token_regenerated = False
+
+        self.url = f'https://management.azure.com{uri}?api-version=2019-01-01-preview'
+
+        # Adding empty header as parameters are being sent in payload
+        self.headers = {
+            "Authorization": "Bearer " + self.bearer_token,
+            "cache-control": "no-cache",
+        }
+        try:
+            self.response = requests.post(self.url, headers=self.headers)
+            return self.response.json()
+        except ConnectionRefusedError as e:
+            #Supporting regeneration of the token automatically. Will try once and will fail after
+            if self.response.status_code == 401 and not self.bearer_token_regenerated:
+                self.logger.info("Bearer token expired. Generating a new one")
+                self.bearer_token = self.getBearerToken()
+                self.bearer_token_regenerated = True
+                self.getEntities(uri)
+            else:
+                self.logger.error("Could not retrieve entity information from Azure Sentinel:", exc_info=True)
+        except Exception as e:
+            self.logger.error(f'Failed to retrieve entities:', exc_info=True)

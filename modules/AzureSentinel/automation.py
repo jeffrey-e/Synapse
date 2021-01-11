@@ -29,24 +29,38 @@ class Automation():
         self.report_action = report_action
 
     def parse_hooks(self):
+        logger.debug(f'Azure Sentinel webhook parsing starts')
         # Update incident status to active when imported as Alert
         if self.webhook.isAzureSentinelAlertImported():
-            self.incidentId = self.webhook.data['object']['sourceRef']
-            logger.info('Incident {} needs to be updated to status Active'.format(self.incidentId))
-            self.AzureSentinelConnector.updateIncidentStatusToActive(self.incidentId)
-            self.report_action = 'updateIncident'
+            # We need to get the alert sourceRefs from the opened case for TH4
+            if self.webhook.data['objectType'] == "case":
+                alert_query = {'case': self.webhook.data['objectId']}
+                alerts = self.TheHiveConnector.findAlert(alert_query)
+                for alert in alerts:
+                    if 'sourceRef' in alert and alert['source'] == 'Azure_Sentinel_incidents':
+                        logger.info(f"Sentinel incident '{alert['title']}' needs to be updated to status Active")
+                        self.AzureSentinelConnector.updateIncidentStatusToActive(alert['sourceRef'])
+            else:
+                self.incidentId = self.webhook.data['object']['sourceRef']
+                logger.info(f'Incident {self.incidentId} needs to be updated to status Active')
+                self.AzureSentinelConnector.updateIncidentStatusToActive(self.incidentId)
+                self.report_action = 'updateIncident'
 
         # Close incidents in Azure Sentinel
         if self.webhook.isClosedAzureSentinelCase() or self.webhook.isDeletedAzureSentinelCase() or self.webhook.isAzureSentinelAlertMarkedAsRead():
-            if self.webhook.data['operation'] == 'Delete':
+            if self.webhook.data['operation'].lower() == 'delete':
+                logger.debug(f'Azure Sentinel: Adding Delete comment')
                 self.case_id = self.webhook.data['objectId']
                 self.classification = "Undetermined"
                 self.classification_comment = "Closed by Synapse with summary: Deleted within The Hive"
 
             elif self.webhook.isAzureSentinelAlertMarkedAsRead():
+                logger.debug(f'Azure Sentinel: Adding Undetermined comment')
+                self.case_id = self.webhook.data['objectId']
                 self.classification = "Undetermined"
                 self.classification_comment = "Closed by Synapse with summary: Marked as Read within The Hive"
             else:
+                logger.debug(f'Azure Sentinel: Adding Case Closure comment')
                 self.case_id = self.webhook.data['object']['id']
 
                 # Translation table for case statusses
@@ -60,7 +74,12 @@ class Automation():
                 self.classification_comment = "Closed by Synapse with summary: {}".format(self.webhook.data['details']['summary'])
 
             logger.info('Incident {} needs to be be marked as Closed'.format(self.case_id))
-            self.AzureSentinelConnector.closeIncident(self.webhook.incidentId, self.classification, self.classification_comment)
+            alert_query = {'case': self.webhook.data['objectId']}
+            alerts = self.TheHiveConnector.findAlert(alert_query)
+            for alert in alerts:
+                if 'sourceRef' in alert and alert['source'] == 'Azure_Sentinel_incidents':
+                    logger.info(f"Closing Sentinel incident {alert['title']}")
+                    self.AzureSentinelConnector.closeIncident(alert['sourceRef'], self.classification, self.classification_comment)
             self.report_action = 'closeIncident'
 
         return self.report_action
