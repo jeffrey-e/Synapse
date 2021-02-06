@@ -130,7 +130,8 @@ class Webhook:
 
         self.logger.debug('%s.isUpdate starts', __name__)
 
-        if self.data['operation'] == 'Update':
+        #TH3 used capital "Update" where TH4 uses 'update'
+        if self.data['operation'] in ['update', 'Update']:
             return True
         else:
             return False
@@ -266,7 +267,8 @@ class Webhook:
 
         self.logger.debug('%s.isImportedAlert starts', __name__)
 
-        if (self.isAlert() and self.isUpdate() and 'status' in self.data['details'] and self.data['details']['status'] == 'Imported'):
+        #TH3 contained status in 'details' where TH4 contains it in 'object'
+        if (self.isAlert() and self.isUpdate() and (('status' in self.data['details'] and self.data['details']['status'] == 'Imported') or ('status' in self.data['object'] and self.data['object']['status'] == 'Imported'))):
             return True
         else:
             return False

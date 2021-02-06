@@ -115,3 +115,6 @@ ENV/
 
 #Vim
 *.swp
+
+#Ignorge vscode stuff
+.vscode/

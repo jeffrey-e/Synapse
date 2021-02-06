@@ -57,7 +57,7 @@ def connectEws():
                 if msg.categories:
                     assignee = msg.categories[0]
                 else:
-                    assignee = 'synapse'
+                    assignee = cfg.get('EWS', 'owner')
 
                 case = theHiveConnector.craftCase(caseTitle, caseDescription)
                 createdCase = theHiveConnector.createCase(case)
