@@ -81,7 +81,7 @@ class Integration(Main):
         self.logger.debug('request: %s' % request.get_data())
         if request.is_json:
             content = request.get_json()
-            workflowReport = json2Alert(content)
+            workflowReport = self.json2Alert(content)
             if workflowReport['success']:
                 return json.dumps(workflowReport), 200
             else:
@@ -113,7 +113,7 @@ class Integration(Main):
                                     'uri_path',
                                     'url',
                                     'user-agent']
-        found_artifacts = __findartifacts(alert_data['description'])
+        found_artifacts = self.__findartifacts(alert_data['description'])
         if 'rule_id' in alert_data:
             uc_tags = alert_data['rule_id'].split(",")
             uc_tags = list(set(uc_tags) | set(alert_data['rule_triggered_id'].split(",")))
@@ -208,7 +208,7 @@ class Integration(Main):
                 event_report = dict()
                 
                 try:
-                    theHiveAlert = JSONToHiveAlert(event)
+                    theHiveAlert = self.JSONToHiveAlert(event)
                     theHiveEsAlertId = self.theHiveConnector.createAlert(theHiveAlert)
 
                     event_report['raised_alert_id'] = theHiveEsAlertId
