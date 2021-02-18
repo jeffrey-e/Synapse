@@ -167,7 +167,6 @@ class Integration(Main):
                 "source": "laptop",
                 "sourceRef": "2",
                 "severity": 4
-                ""
             }
         """
         #self.logger = logging.getLogger(__name__)
@@ -178,7 +177,14 @@ class Integration(Main):
 
         try:
             #Initiate dict for the alert
-            alert_content = dict()
+            alert_content = { 
+                "title": "",
+                "description": "No description",
+                "type": "",
+                "source": "Synapse",
+                "sourceRef": "",
+                "severity": 1
+            }
 
             #Check for a proper id
             id = hashlib.sha1(json.dumps(event).encode('utf-8')).hexdigest()
@@ -191,14 +197,9 @@ class Integration(Main):
                     elif key == "title":
                         self.logger.error("Could not find a title for this event: {}".format(event))
                         report['success'] = False
+                        return report
                     else:
-                        self.logger.warning("Could not find a {} for this event '{}', using default value".format(key, event['title']))
-                        if key == 'description':
-                            alert_content[key] = "No description"
-                        if key == 'source':
-                            alert_content[key] = "Synapse"
-                        if key == 'severity':
-                            alert_content[key] = "1"
+                        self.logger.warning("Could not find a {} for this event, using default value '{}'".format(key, value))
                 else:
                     alert_content[key] = str(event[key])
             
