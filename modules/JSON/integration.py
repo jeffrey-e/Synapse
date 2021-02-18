@@ -14,16 +14,10 @@ from core.functions import getConf
 from core.integration import Main
 from modules.TheHive.connector import TheHiveConnector
 
-current_dir = os.path.dirname(os.path.abspath(__file__))
-app_dir = current_dir + '/..'
-sys.path.insert(0, current_dir)
-logger = logging.getLogger(__name__)
-
 class Integration(Main):
 
     def __init__(self):
         super().__init__()
-        self.cfg = getConf()
         self.theHiveConnector = TheHiveConnector(self.cfg)
     
     def __findartifacts(self, value):
@@ -35,7 +29,7 @@ class Integration(Main):
         """
 
         #Init regexes
-        logger.info("Preparing regex statements")
+        self.logger.info("Preparing regex statements")
 
         #### Generic regexes
         
@@ -83,8 +77,8 @@ class Integration(Main):
                 return []
 
     def validateRequest(self, request):
-        logger.info("Received JSON request")
-        logger.debug('request: %s' % request.get_data())
+        self.logger.info("Received JSON request")
+        self.logger.debug('request: %s' % request.get_data())
         if request.is_json:
             content = request.get_json()
             workflowReport = json2Alert(content)
@@ -93,7 +87,7 @@ class Integration(Main):
             else:
                 return json.dumps(workflowReport), 500
         else:
-            logger.error('Not a json request: %s' % request.get_data())
+            self.logger.error('Not a json request: %s' % request.get_data())
             return json.dumps({'sucess':False, 'message':"Request didn't contain valid JSON"}), 400
 
     def JSONToHiveAlert(self, alert_data):
@@ -176,8 +170,8 @@ class Integration(Main):
                 ""
             }
         """
-        #logger = logging.getLogger(__name__)
-        logger.info('%s.json2Alert starts', __name__)
+        #self.logger = logging.getLogger(__name__)
+        self.logger.info('%s.json2Alert starts', __name__)
 
         report = dict()
         report['success'] = True
@@ -195,10 +189,10 @@ class Integration(Main):
                     if key == 'sourceRef':
                         alert_content['sourceRef'] = id
                     elif key == "title":
-                        logger.error("Could not find a title for this event: {}".format(event))
+                        self.logger.error("Could not find a title for this event: {}".format(event))
                         report['success'] = False
                     else:
-                        logger.warning("Could not find a {} for this event '{}', using default value".format(key, event['title']))
+                        self.logger.warning("Could not find a {} for this event '{}', using default value".format(key, event['title']))
                         if key == 'description':
                             alert_content[key] = "No description"
                         if key == 'source':
@@ -210,7 +204,7 @@ class Integration(Main):
             
             results = self.theHiveConnector.findAlert(alert_content['sourceRef'])
             if len(results) == 0:
-                logger.info('Json Alert %s not found in TheHive alerts, creating it', str(event['sourceRef']))
+                self.logger.info('Json Alert %s not found in TheHive alerts, creating it', str(event['sourceRef']))
                 event_report = dict()
                 
                 try:
@@ -222,7 +216,7 @@ class Integration(Main):
                     event_report['success'] = True
 
                 except Exception as e:
-                    logger.error('%s.json2Alert failed', __name__, exc_info=True)
+                    self.logger.error('%s.json2Alert failed', __name__, exc_info=True)
                     event_report['success'] = False
                     if isinstance(e, ValueError):
                         errorMessage = json.loads(str(e))['message']
@@ -235,11 +229,11 @@ class Integration(Main):
 
                 report['event'] = event_report
             else:
-                logger.info('JSON Alert %s already imported as alert', str(event['sourceRef']))
+                self.logger.info('JSON Alert %s already imported as alert', str(event['sourceRef']))
 
         except Exception as e:
 
-                logger.error('Failed to create alert from JSON Alert', exc_info=True)
+                self.logger.error('Failed to create alert from JSON Alert', exc_info=True)
                 report['success'] = False
                 report['message'] = "%s: Failed to create alert from JSON Alert" % str(e)
         
