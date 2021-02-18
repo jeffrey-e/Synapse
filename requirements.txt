@@ -17,6 +17,7 @@ itsdangerous==0.24
 jinja2==2.10
 lxml==4.2.5
 markupsafe==1.1.1
+msal==1.9.0
 ntlm-auth==1.2.0
 pycparser==2.19
 pygments==2.2.0
