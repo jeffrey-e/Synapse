@@ -153,7 +153,7 @@ class Integration(Main):
             alert_data['type'],
             str(alert_data['sourceRef']),
             artifacts,
-            alert_data['case_template'])
+            alert_data['caseTemplate'])
 
         return alert
 
