@@ -194,6 +194,7 @@ class Integration(Main):
                 if not key in event:
                     if key == 'sourceRef':
                         alert_content['sourceRef'] = id
+                        self.logger.debug("Generated key for json alert: {}".format(id))
                     elif key == "title":
                         self.logger.error("Could not find a title for this event: {}".format(event))
                         report['success'] = False
@@ -203,7 +204,10 @@ class Integration(Main):
                 else:
                     alert_content[key] = str(event[key])
             
-            results = self.theHiveConnector.findAlert(alert_content['sourceRef'])
+            self.query = dict()
+            self.query['sourceRef'] = str(event['sourceRef'])
+            self.logger.info('Looking for offense %s in TheHive alerts', str(offense['id']))
+            results = self.theHiveConnector.findAlert(self.query)
             if len(results) == 0:
                 self.logger.info('Json Alert %s not found in TheHive alerts, creating it', str(event['sourceRef']))
                 event_report = dict()
