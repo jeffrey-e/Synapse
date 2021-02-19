@@ -98,6 +98,9 @@ class Integration(Main):
         # Setup Tags
         tags = ['JSON', 'Synapse']
 
+        #Add provided tags
+        tags.extend(alert_data['tags'])
+
         defaultObservableDatatype = ['autonomous-system',
                                     'domain',
                                     'file',
@@ -183,7 +186,8 @@ class Integration(Main):
                 "type": "",
                 "source": "Synapse",
                 "sourceRef": "",
-                "severity": 1
+                "severity": 1,
+                "tags": []
             }
 
             #Check for a proper id
@@ -213,7 +217,7 @@ class Integration(Main):
                 event_report = dict()
                 
                 try:
-                    theHiveAlert = self.JSONToHiveAlert(event)
+                    theHiveAlert = self.JSONToHiveAlert(alert_content)
                     theHiveEsAlertId = self.theHiveConnector.createAlert(theHiveAlert)
 
                     event_report['raised_alert_id'] = theHiveEsAlertId
@@ -228,7 +232,7 @@ class Integration(Main):
                         event_report['message'] = errorMessage
                     else:
                         event_report['message'] = str(e) + ": Couldn't raise alert in TheHive"
-                    event_report['alert_id'] = event['sourceRef']
+                    event_report['alert_id'] = alert_content['sourceRef']
                     # Set overall success if any fails
                     report['success'] = False
 
