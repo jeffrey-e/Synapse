@@ -205,11 +205,11 @@ class Integration(Main):
                     alert_content[key] = str(event[key])
             
             self.query = dict()
-            self.query['sourceRef'] = str(event['sourceRef'])
-            self.logger.info('Looking for offense %s in TheHive alerts', str(offense['id']))
+            self.query['sourceRef'] = str(alert_content['sourceRef'])
+            self.logger.info('Looking for id %s in TheHive alerts', str(alert_content['sourceRef']))
             results = self.theHiveConnector.findAlert(self.query)
             if len(results) == 0:
-                self.logger.info('Json Alert %s not found in TheHive alerts, creating it', str(event['sourceRef']))
+                self.logger.info('Json Alert %s not found in TheHive alerts, creating it', str(alert_content['sourceRef']))
                 event_report = dict()
                 
                 try:
