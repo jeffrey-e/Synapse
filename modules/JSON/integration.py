@@ -187,8 +187,7 @@ class Integration(Main):
                 "source": "Synapse",
                 "sourceRef": "",
                 "severity": 1,
-                "case",
-                "caseTemplate",
+                "caseTemplate" : "",
                 "tags": []
             }
 
