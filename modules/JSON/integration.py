@@ -207,7 +207,7 @@ class Integration(Main):
                     else:
                         self.logger.warning("Could not find a {} for this event, using default value '{}'".format(key, value))
                 else:
-                    alert_content[key] = str(event[key])
+                    alert_content[key] = event[key]
             
             self.query = dict()
             self.query['sourceRef'] = str(alert_content['sourceRef'])
@@ -222,7 +222,7 @@ class Integration(Main):
                     theHiveEsAlertId = self.theHiveConnector.createAlert(theHiveAlert)
 
                     event_report['raised_alert_id'] = theHiveEsAlertId
-                    event_report['alert_id'] = event['sourceRef']
+                    event_report['alert_id'] = alert_content['sourceRef']
                     event_report['success'] = True
 
                 except Exception as e:
@@ -239,7 +239,7 @@ class Integration(Main):
 
                 report['event'] = event_report
             else:
-                self.logger.info('JSON Alert %s already imported as alert', str(event['sourceRef']))
+                self.logger.info('JSON Alert %s already imported as alert', str(alert_content['sourceRef']))
 
         except Exception as e:
 
