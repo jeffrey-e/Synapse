@@ -22,8 +22,14 @@ class CustomJsonEncoder(json.JSONEncoder):
 
 
 class JSONSerializable(object):
-    def jsonify(self):
-        return json.dumps(self, sort_keys=True, indent=4, cls=CustomJsonEncoder)
+    def jsonify(self, excludes=[]):
+        data = self.__dict__
+
+        for ex in excludes:
+            if ex in data:
+                del data[ex]
+
+        return json.dumps(data, sort_keys=True, indent=4, cls=CustomJsonEncoder)
 
     def attr(self, attributes, name, default, error=None):
         is_required = error is not None
@@ -68,9 +74,11 @@ class Case(JSONSerializable):
 
     def __init__(self, **attributes):
         defaults = {
+            'id': None,
             'title': None,
             'description': None,
             'tlp': 2,
+            'pap': 2,
             'severity': 2,
             'flag': False,
             'tags': [],
@@ -78,7 +86,8 @@ class Case(JSONSerializable):
             'metrics': {},
             'customFields': {},
             'tasks': [],
-            'template': None
+            'template': None,
+            'owner': None
         }
 
         if attributes.get('json', False):
@@ -88,9 +97,11 @@ class Case(JSONSerializable):
         if is_from_template:
             defaults['template'] = attributes['template']
 
+        self.id = attributes.get('id', None)
         self.title = attributes.get('title', None)
         self.description = attributes.get('description', defaults['description'])
         self.tlp = attributes.get('tlp', defaults['tlp'])
+        self.pap = attributes.get('pap', defaults['pap'])
         self.severity = attributes.get('severity', defaults['severity'])
         self.flag = attributes.get('flag', defaults['flag'])
         self.tags = attributes.get('tags', defaults['tags'])
@@ -98,6 +109,7 @@ class Case(JSONSerializable):
         self.metrics = attributes.get('metrics', defaults['metrics'])
         self.customFields = attributes.get('customFields', defaults['customFields'])
         self.template = attributes.get('template', defaults['template'])
+        self.owner = attributes.get('owner', defaults['owner'])
 
         tasks = attributes.get('tasks', defaults['tasks'])
         self.tasks = []
@@ -205,6 +217,7 @@ class CaseTask(JSONSerializable):
         if attributes.get('json', False):
             attributes = attributes['json']
 
+        self.id = attributes.get('id', None)
         self.title = attributes.get('title', None)
         self.status = attributes.get('status', 'Waiting')
         self.flag = attributes.get('flag', False)
@@ -219,6 +232,7 @@ class CaseTaskLog(JSONSerializable):
         if attributes.get('json', False):
             attributes = attributes['json']
 
+        self.id = attributes.get('id', None)
         self.message = attributes.get('message', None)
         self.file = attributes.get('file', None)
 
@@ -228,12 +242,14 @@ class CaseTemplate(JSONSerializable):
         if attributes.get('json', False):
             attributes = attributes['json']
 
+        self.id = attributes.get('id', None)
         self.name = attributes.get('name', None)
         self.titlePrefix = attributes.get('titlePrefix', None)
         self.description = attributes.get('description', None)
         self.severity = attributes.get('severity', 2)
         self.flag = attributes.get('flag', False)
         self.tlp = attributes.get('tlp', 2)
+        self.pap = attributes.get('pap', 2)
         self.tags = attributes.get('tags', [])
         self.metrics = attributes.get('metrics', {})
         self.customFields = attributes.get('customFields', {})
@@ -251,6 +267,8 @@ class CaseObservable(JSONSerializable):
     def __init__(self, **attributes):
         if attributes.get('json', False):
             attributes = attributes['json']
+
+        self.id = attributes.get('id', None)
         self.dataType = attributes.get('dataType', None)
         self.message = attributes.get('message', None)
         self.tlp = attributes.get('tlp', 2)
@@ -270,8 +288,8 @@ class Alert(JSONSerializable):
         if attributes.get('json', False):
             attributes = attributes['json']
 
+        self.id = attributes.get('id', None)
         self.tlp = attributes.get('tlp', 2)
-        self.status = attributes.get('status', "New")
         self.severity = attributes.get('severity', 2)
         self.date = attributes.get('date', int(time.time()) * 1000)
         self.tags = attributes.get('tags', [])
@@ -302,6 +320,8 @@ class AlertArtifact(JSONSerializable):
         self.message = attributes.get('message', None)
         self.tlp = attributes.get('tlp', 2)
         self.tags = attributes.get('tags', [])
+        self.ioc = attributes.get('ioc', False)
+        self.sighted = attributes.get('sighted', False)
 
         if self.dataType == 'file':
             self.data = self._prepare_file_data(attributes.get('data', None))
