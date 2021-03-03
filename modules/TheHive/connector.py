@@ -230,7 +230,7 @@ class TheHiveConnector:
         self.logger.debug('%s.addFileObservable starts', __name__)
 
         file_observable = CaseObservable(dataType='file',
-            data=[filepath],
+            data=filepath,
             tlp=2,
             ioc=False,
             tags=['Synapse'],
@@ -241,7 +241,7 @@ class TheHiveConnector:
             esCaseId, file_observable)
 
         if response.status_code == 201:
-            esObservableId = response.json()['id']
+            esObservableId = response.json()[0]['id']
             return esObservableId
         else:
             self.logger.error('File observable upload failed')
