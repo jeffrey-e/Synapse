@@ -2,13 +2,13 @@
 # -*- coding: utf8 -*-
 
 import logging
-import time, json
+import time
+import json
 from datetime import datetime, timezone
 from dateutil import tz
 from collections import OrderedDict
 from .objects.RestApiClient import RestApiClient
 from .objects.arielapiclient import APIClient
-from multiprocessing import Process, Queue
 
 class QRadarConnector:
     'QRadar connector'
@@ -37,23 +37,23 @@ class QRadarConnector:
             self.redis_dip = redis.StrictRedis(host="localhost", port=6379, db=1)
 
     def formatDate(self, qradarTimeStamp):
-        #Define timezones
+        # Define timezones
         current_timezone = tz.gettz('UTC')
-        
-        #Retrieve timezone from config or use local time (None)
+
+        # Retrieve timezone from config or use local time (None)
         configured_timezone = self.cfg.get('QRadar', 'timezone', fallback=None)
         new_timezone = tz.gettz(configured_timezone)
 
-        #Parse timestamp received from QRadar
+        # Parse timestamp received from QRadar
         qradarTimeStamp = qradarTimeStamp / 1000.0
         formatted_time = datetime.fromtimestamp(qradarTimeStamp)
-        utc_formatted_time = formatted_time.replace(tzinfo=current_timezone)
+        #utc_formatted_time = formatted_time.replace(tzinfo=current_timezone)
 
-        #Convert to configured timezone
-        ntz_formatted_time = formatted_time.astimezone(new_timezone)
+        # Convert to configured timezone
+        #ntz_formatted_time = utc_formatted_time.astimezone(new_timezone)
 
-        #Create a string from time object
-        string_formatted_time = ntz_formatted_time.strftime('%Y-%m-%d %H:%M:%S')
+        # Create a string from time object
+        string_formatted_time = formatted_time.strftime('%Y-%m-%d %H:%M:%S')
 
         return string_formatted_time
 
@@ -145,7 +145,7 @@ class QRadarConnector:
                 query, 'GET')
         
             try:
-                response_text = response.read().decode('utf-8')
+                response_text = response.text
                 response_body = json.loads(response_text)
         
                 #response_body would look like
@@ -196,7 +196,7 @@ class QRadarConnector:
                 #  }
                 #]
 
-                if (response.code == 200):
+                if (response.status_code == 200):
                     return response_body
                 else:
                     raise ValueError(json.dumps(
@@ -206,14 +206,14 @@ class QRadarConnector:
 
             except ValueError as e:
                 self.logger.error('%s.getOffenses failed, api call returned http %s',
-                    __name__, str(response.code))
+                    __name__, str(response.status_code))
                 raise
 
         except Exception as e:
             self.logger.error('getOffenses failed', exc_info=True)
             raise
 
-    def getAddressesFromIDs(self, path, field, ids, queue):
+    def getAddressesFromIDs(self, path, field, ids):
         #using queue to implement a timeout mecanism
         #useful if there are more than 50 IPs to look up
         self.logger.debug("Looking up %s with %s IDs..." % (path,ids))
@@ -239,17 +239,17 @@ class QRadarConnector:
                 if not self.redis_enabled or self.ip == None:
                     self.logger.debug('Looking up %s in QRadar' % address_id)
                     response = self.client.call_api('siem/%s/%s' % (path, address_id), 'GET')
-                    response_text = response.read().decode('utf-8')
+                    response_text = response.text
                     response_body = json.loads(response_text)
 
                     try:
-                        if response.code == 200:
+                        if response.status_code == 200:
                             address_strings.append(response_body[field])
                             #Put address in Redis
                             if self.redis_enabled:
                                 self.ip = self.redis_ip.set(address_id, response_body[field], 604800)
                         else:
-                            self.logger.warning("Couldn't get id %s from path %s (response code %s)" % (address_id, path, response.code))
+                            self.logger.warning("Couldn't get id %s from path %s (response code %s)" % (address_id, path, response.status_code))
 
                     except Exception as e:
                         self.logger.error('%s.getAddressFromIDs failed', __name__, exc_info=True)
@@ -263,39 +263,19 @@ class QRadarConnector:
                 self.logger.error('%s.getAddressFromIDs failed', __name__, exc_info=True)
                 raise e
 
-        queue.put(address_strings)
+        return address_strings
 
     def getSourceIPs(self, offense):
-        if not "source_address_ids" in offense:
+        if "source_address_ids" not in offense:
             return []
-
-        queue = Queue()
-        proc = Process(target=self.getAddressesFromIDs, args=("source_addresses", "source_ip", offense["source_address_ids"], queue,))
-        proc.start()
-        try:
-            res = queue.get(timeout=int(self.cfg.get('QRadar', 'api_timeout')))
-            proc.join()
-            return res
-        except:
-            proc.terminate()
-            self.logger.error('%s.getSourceIPs took too long, aborting', __name__, exc_info=True)
-            return []
+        addresses_from_ids = self.getAddressesFromIDs("source_addresses", "source_ip", offense["source_address_ids"])
+        return addresses_from_ids
 
     def getLocalDestinationIPs(self, offense):
-        if not "local_destination_address_ids" in offense:
+        if "local_destination_address_ids" not in offense:
             return []
-
-        queue = Queue()
-        proc = Process(target=self.getAddressesFromIDs, args=("local_destination_addresses", "local_destination_ip", offense["local_destination_address_ids"], queue,))
-        proc.start()
-        try:
-            res = queue.get(timeout=int(self.cfg.get('QRadar', 'api_timeout')))
-            proc.join()
-            return res
-        except:
-            proc.terminate()
-            self.logger.error('%s.getLocalDestinationIPs took too long, aborting', __name__, exc_info=True)
-            return []
+        addresses_from_ids = self.getAddressesFromIDs("local_destination_addresses", "local_destination_ip", offense["local_destination_address_ids"])
+        return addresses_from_ids
 
     def getOffenseTypeStr(self, offenseTypeId):
         """
@@ -317,7 +297,7 @@ class QRadarConnector:
             response = self.client.call_api(
                 'siem/offense_types?filter=id%3D' + str(offenseTypeId),
                 'GET')
-            response_text = response.read().decode('utf-8')
+            response_text = response.text
             response_body = json.loads(response_text)
 
             #response_body would look like
@@ -332,12 +312,12 @@ class QRadarConnector:
             #]
 
             try:
-                if response.code == 200:
+                if response.status_code == 200:
                     offenseTypeStr = response_body[0]['name']
                 else:
                     self.logger.error(
                         'getOffenseTypeStr failed, api returned http %s',
-                         str(response.code))
+                         str(response.status_code))
                     self.logger.error(json.dumps(response_body, indent=4))
 
                 return offenseTypeStr
@@ -368,7 +348,7 @@ class QRadarConnector:
         self.logger.debug('%s.getOffenseLogs starts', __name__)
 
         try:
-            offenseId = offense['id']
+            offense_id = offense['id']
 
             # QRadar does not find the log when filtering
             # on the time window's edges
@@ -386,7 +366,7 @@ class QRadarConnector:
                 last_updated_time
             )
 
-            query = ("select  DATEFORMAT(starttime,'YYYY-MM-dd HH:mm:ss') as Date, UTF8(payload) from events where INOFFENSE('" + str(offenseId) + "') ORDER BY Date ASC  LIMIT 3 START '" + start_timeStr + "' STOP '" + last_updated_timeStr + "';")
+            query = ("select  DATEFORMAT(starttime,'YYYY-MM-dd HH:mm:ss') as Date, UTF8(payload) from events where INOFFENSE('" + str(offense_id) + "') ORDER BY Date ASC  LIMIT 3 START '" + start_timeStr + "' STOP '" + last_updated_timeStr + "';")
 
             self.logger.debug("Running the enrichment query for the first 3 payloads: {}".format(query))
             response = self.aqlSearch(query)
@@ -432,13 +412,13 @@ class QRadarConnector:
         self.logger.debug('%s.aqlSearch starts', __name__)
         try:
             response = self.arielClient.create_search(aql_query)
-            if (response.code in [200,201]):
-                response_json = json.loads(response.read().decode('utf-8'))
+            if (response.status_code in [200,201]):
+                response_json = json.loads(response.text)
                 self.logger.debug("AQL Search is created: %s" % response_json)
                 search_id = response_json['search_id']
                 response = self.arielClient.get_search(search_id)
             else:
-                self.logger.error("An error occurred while creating the search: %s, %s" % (response.code, response.read().decode('utf-8')))
+                self.logger.error("An error occurred while creating the search: %s, %s" % (response.status_code, response.text ))
                 return {}
 
             error = False
@@ -447,15 +427,15 @@ class QRadarConnector:
                         (response_json['status'] == 'SORTING') | \
                         (response_json['status'] == 'WAIT'):
                     response = self.arielClient.get_search(search_id)
-                    response_json = json.loads(response.read().decode('utf-8'))
+                    response_json = json.loads(response.text)
                 else:
-                    self.logger.error("An error occurred while waiting for search completion: %s, %s" % (response.code, response.read().decode('utf-8')))
+                    self.logger.error("An error occurred while waiting for search completion: %s, %s" % (response.status_code, response.text ))
                     error = True
 
             response = self.arielClient.get_search_results(
                 search_id, 'application/json')
     
-            body = response.read().decode('utf-8')
+            body = response.text
             body_json = json.loads(body, object_pairs_hook=OrderedDict)
 
             #TO DO: Delete the Search request after it is finished receiving the data
@@ -471,12 +451,12 @@ class QRadarConnector:
             self.logger.error('%s.aqlSearch failed', __name__, exc_info=True)
             raise
 
-    def offenseIsOpen(self, offenseId):
+    def offenseIsOpen(self, offense_id):
         """
             Check if an offense is close or open in QRadar
 
-            :param offenseId: the QRadar offense id
-            :type offenseId: str
+            :param offense_id: the QRadar offense id
+            :type offense_id: str
 
             :return: True if the offense is open, False otherwise
             :rtype: boolean
@@ -486,12 +466,12 @@ class QRadarConnector:
 
         try:
             response = self.client.call_api('siem/offenses?filter=id%3D' + \
-                offenseId, 'GET')
+                str(offense_id), 'GET')
 
-            response_text = response.read().decode('utf-8')
+            response_text = response.text
             response_body = json.loads(response_text)
 
-            if (response.code == 200):
+            if (response.status_code == 200):
                 #response_body is a list of dict
                 if len(response_body) > 0 and response_body[0]['status'] == 'OPEN':
                     return True
@@ -500,19 +480,19 @@ class QRadarConnector:
             else:
                 raise ValueError(response_body)
         except ValueError:
-            self.logger.error('QRadar returned http %s', str(response.code))
+            self.logger.error('QRadar returned http %s', str(response.status_code))
             raise
         except Exception as e:
-            self.logger.error('Failed to check offense %s status', offenseId, exc_info=True)
+            self.logger.error('Failed to check offense %s status', offense_id, exc_info=True)
             raise
             
 
-    def closeOffense(self, offenseId):
+    def closeOffense(self, offense_id):
         """
-            Close an offense in QRadar given a specific offenseId
+            Close an offense in QRadar given a specific offense_id
 
-            :param offenseId: the QRadar offense id
-            :type offenseId: str
+            :param offense_id: the QRadar offense id
+            :type offense_id: str
 
             :return: nothing
             :rtype: 
@@ -520,15 +500,15 @@ class QRadarConnector:
 
         self.logger.debug('%s.closeOffense starts', __name__)
 
-        if self.offenseIsOpen(offenseId):
+        if self.offenseIsOpen(offense_id):
             try:
                 #when closing an offense with the webUI, the closing_reason_id
                 #is set to 1 by default
                 #this behavior is implemented here with a hardcoded
                 #closing_reason_id=1
                 response = self.client.call_api(
-                'siem/offenses/' + str(offenseId) + '?status=CLOSED&closing_reason_id=1', 'POST')
-                response_text = response.read().decode('utf-8')
+                'siem/offenses/' + str(offense_id) + '?status=CLOSED&closing_reason_id=1', 'POST')
+                response_text = response.text
                 response_body = json.loads(response_text)
         
                 #response_body would look like
@@ -542,17 +522,17 @@ class QRadarConnector:
                 #  }
                 #]
 
-                if (response.code == 200):
-                    self.logger.info('Offense %s successsfully closed', offenseId)
+                if (response.status_code == 200):
+                    self.logger.info('Offense %s successsfully closed', offense_id)
                 else:
                     raise ValueError(response_body)
             except ValueError as e:
-                self.logger.error('QRadar returned http %s', str(response.code))
+                self.logger.error('QRadar returned http %s', str(response.status_code))
             except Exception as e:
-                self.logger.error('Failed to close offense %s', offenseId, exc_info=True)
+                self.logger.error('Failed to close offense %s', offense_id, exc_info=True)
                 raise
         else:
-            self.logger.info('Offense %s already closed', offenseId)
+            self.logger.info('Offense %s already closed', offense_id)
             
             
 #### Troubleshooten. Wilt nog niet de naam toevoegen aan de rule array
@@ -575,10 +555,10 @@ class QRadarConnector:
             self.logger.info('Looking up rule id %s', str(rule_id))
             try:
                 response = self.client.call_api('analytics/rules/%s' % rule_id, 'GET')
-                response_text = response.read().decode('utf-8')
+                response_text = response.text
                 response_body = json.loads(response_text)
 
-                if response.code == 200:
+                if response.status_code == 200:
                     rules.append({'id':rule['id'], 'type':rule['type'], 'name':response_body['name']})
                 else:
                     self.logger.warning('Could not get rule name for offense')

@@ -1,0 +1,18 @@
+SEC0000:
+  automation:
+    enrich_ML_Offenses_from_qradar:
+      task: QRadar.enrichAlert
+      field name without underscores:
+        query: select "ML_field_of_interest" as enrichment_result from events where INOFFENSE('{{Offense_ID}}') LIMIT 1 START PARSEDATETIME('{{Start_Time}}');
+    enrich_ML_Offenses_from_qradar_1:
+      task: QRadar.search
+      config_for_ML_suspicious_url:
+        create_ioc: True
+        ioc_type: url
+        query: select "ML_field_of_interest" as enrichment_result from events where INOFFENSE('{{Offense_ID}}') LIMIT 1 START PARSEDATETIME('{{Start_Time}}');
+    enrich_ML_Offenses_from_qradar_2:
+      task: QRadar.search
+      config_for_ML_suspicious_url:
+        create_thehive_task: True
+        thehive_task_title: title of the task in thehive
+        query: select "ML_field_of_interest" as enrichment_result from events where INOFFENSE('{{Offense_ID}}') LIMIT 1 START PARSEDATETIME('{{Start_Time}}');

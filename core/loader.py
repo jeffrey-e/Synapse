@@ -2,7 +2,7 @@ import logging
 import os
 import importlib
 
-def moduleLoader(submodule):
+def moduleLoader(submodule, enabled_modules=[]):
     #import logger
     logger = logging.getLogger(__name__)
 
@@ -17,6 +17,9 @@ def moduleLoader(submodule):
     logger.info("Loading modules for {}".format(submodule))
     #Loop through modules to create a module dictionary
     for module in modules:
+        if len(enabled_modules) > 0:
+            if not module in enabled_modules:
+                continue
         loaded_modules[module] = importlib.import_module("modules.{}.{}".format(module, submodule))
         logger.info("Loaded {} module {}".format(submodule,module))
         # for item in dir(loaded_modules[module]):

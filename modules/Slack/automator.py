@@ -46,7 +46,7 @@ class Automators(Main):
             self.slack_data['text'] = "*%s*\n %s" % (self.title, self.rendered_template)
 
             try:
-                self.response = requests.post(self.url, data=json.dumps(self.slack_data), headers={'Content-Type': 'application/json'})
+                self.response = requests.post(self.url, data=json.dumps(self.slack_data), headers={'Content-Type': 'application/json'}, timeout=60)
                 if self.response.status_code not in [200, 201]:
                     self.logger.error("Something went wrong when posting to slack: %s" % self.response.raw.read())
             except Exception as e:

@@ -28,8 +28,8 @@ class Webhook:
         # One liner to generate a sha1 hash from the data to use as an id. Requires json to create a byte array from the dict
         self.id = hashlib.sha1(json.dumps(webhookData).encode('utf-8')).hexdigest()
         self.data = webhookData
-        self.theHiveConnector = TheHiveConnector(cfg)
-        self.offenseIds = []
+        self.TheHiveConnector = TheHiveConnector(cfg)
+        self.ext_alert_ids = []
 
     def isAlert(self):
         """
@@ -57,6 +57,21 @@ class Webhook:
         self.logger.debug('%s.isCase starts', __name__)
 
         if self.data['objectType'] == 'case':
+            return True
+        else:
+            return False
+
+    def isAlertArtifact(self):
+        """
+            Check if the webhook describes an Alert artifact
+
+            :return: True if it is an Alert artifact, False if not
+            :rtype: boolean
+        """
+
+        self.logger.debug('%s.isAlertArtifact starts', __name__)
+
+        if (self.isNewAlert() and 'artifacts' in self.data['object']):
             return True
         else:
             return False
@@ -271,21 +286,21 @@ class Webhook:
         else:
             return False
 
-    def isFromAlert(self, esCaseId):
+    def isFromAlert(self, case_id):
         """
-            For a given esCaseId, search if the case has been opened from
-            a QRadar offense, if so adds the offenseId attribute to this object
+            For a given case_id, search if the case has been opened from
+            an alert, if so return True and add the alert id's to the webhook
 
-            :param esCaseId: elasticsearch case id
-            :type esCaseId: str
+            :param case_id: case id
+            :type case_id: str
 
             :return: True if it is a QRadar case, false if not
             :rtype: bool
         """
 
         query = dict()
-        query['case'] = esCaseId
-        results = self.theHiveConnector.findAlert(query)
+        query['case'] = case_id
+        results = self.TheHiveConnector.findAlert(query)
 
         if len(results) == 1:
             # Case is based on a single alert
@@ -376,7 +391,7 @@ class Webhook:
     def isQRadarAlertMarkedAsRead(self):
         """
             Check if the webhook describes a QRadar alert marked as read
-            "store" the offenseId in the webhook attribute "offenseId"
+            "store" the offense_id in the webhook attribute "offense_id"
 
             :return: True if it is a QRadar alert marked as read, False if not
             :rtype: boolean
@@ -388,7 +403,7 @@ class Webhook:
             # the value 'QRadar_Offenses' is hardcoded at creation by
             # workflow QRadar2alert
             if self.data['object']['source'] == 'QRadar_Offenses':
-                self.offenseId = self.data['object']['sourceRef']
+                self.offense_id = self.data['object']['sourceRef']
                 return True
         return False
 
@@ -431,7 +446,7 @@ class Webhook:
             Check if the webhook describes a closing QRadar case,
             if the case has been opened from a QRadar alert
             returns True
-            "store" the offenseId in the webhook attribute "offenseId"
+            "store" the offense_id in the webhook attribute "offense_id"
             If the case is merged, it is not considered to be closed (even if it is
             from TheHive perspective), as a result, a merged qradar case will not close
             an offense.
@@ -445,10 +460,10 @@ class Webhook:
         self.logger.debug('%s.isClosedQRadarCase starts', __name__)
 
         try:
-            if self.isCase() and self.isClosed():
+            if self.isQRadar() and self.isCase() and self.isClosed():
                 # searching in alerts if the case comes from a QRadar alert
-                esCaseId = self.data['objectId']
-                if self.fromQRadar(esCaseId):
+                case_id = self.data['objectId']
+                if self.fromQRadar(case_id):
                     return True
 
             else:
@@ -465,7 +480,7 @@ class Webhook:
         """
             Check if the webhook describes deleting a QRadar case,
 
-            "store" the offenseId in the webhook attribute "offenseId"
+            "store" the offense_id in the webhook attribute "offense_id"
 
             :return: True if it is deleting a QRadar case, False if not
             :rtype: boolean
@@ -476,8 +491,8 @@ class Webhook:
         try:
             if self.isCase() and self.isDeleted():
                 # searching in alerts if the case comes from a QRadar alert
-                esCaseId = self.data['objectId']
-                if self.fromQRadar(esCaseId):
+                case_id = self.data['objectId']
+                if self.fromQRadar(case_id):
                     return True
             else:
                 # not a case or have not been deleted when
@@ -488,33 +503,29 @@ class Webhook:
             self.logger.error('%s.isDeletedQRadarCase failed', __name__, exc_info=True)
             raise
 
-    def fromQRadar(self, esCaseId):
+    def fromQRadar(self, case_id):
         """
-            For a given esCaseId, search if the case has been opened from
-            a QRadar offense, if so adds the offenseId attribute to this object
+            For a given case_id, search if the case has been opened from
+            a QRadar offense, if so adds the offense_id attribute to this object
 
-            :param esCaseId: elasticsearch case id
-            :type esCaseId: str
+            :param case_id: case id
+            :type case_id: str
 
-            :return: True if it is a QRadar case, false if not
+            :return: True if it is a Qradar case and alerts are found, false if not
             :rtype: bool
         """
 
-        if self.isFromAlert(esCaseId):
+        if self.isFromAlert(case_id):
             if hasattr(self, 'alert') and self.alert['source'] == 'QRadar_Offenses':
-                # case opened from alert
-                # and from QRadar
-                self.offenseId = self.alert['sourceRef']
+                self.ext_alert_id = self.alert['sourceRef']
                 return True
             elif hasattr(self, 'alerts'):
                 for alert in self.alerts:
                     if alert['source'] == 'QRadar_Offenses':
-                        self.offenseIds.append(alert['sourceRef'])
-                if len(self.offenseIds) > 0:
+                        self.ext_alert_ids.append(alert['sourceRef'])
+                if len(self.ext_alert_ids) > 0:
                     return True
             else:
-                # case opened from an alert but
-                # not from QRadar
                 return False
         else:
             return False
@@ -568,35 +579,33 @@ class Webhook:
         else:
             return False
 
-    def fromAzureSentinel(self, esCaseId):
+    def fromAzureSentinel(self, case_id):
         """
-            For a given esCaseId, search if the case has been opened from
-            a AzureSentinel incident, if so adds the incidentId attribute to this object
+            For a given case_id, search if the case has been opened from
+            a Azure Sentinel offense, if so adds the offense_id attribute to this object
 
-            :param esCaseId: elasticsearch case id
-            :type esCaseId: str
+            :param case_id: case id
+            :type case_id: str
 
-            :return: True if it is a AzureSentinel case, false if not
+            :return: True if it is a Azure Sentinel case and alerts are found, false if not
             :rtype: bool
         """
 
-        query = dict()
-        query['case'] = esCaseId
-        results = self.theHiveConnector.findAlert(query)
-
-        if len(results) == 1:
-            # should only have one hit
-            if results[0]['source'] == 'Azure_Sentinel_incidents':
-                # case opened from incident
-                # and from AzureSentinel
-                self.incidentId = results[0]['sourceRef']
+        if self.isFromAlert(case_id):
+            if hasattr(self, 'alert') and self.alert['source'] == 'Azure_Sentinel_incidents':
+                self.ext_alert_id = self.alert['sourceRef']
                 return True
+            elif hasattr(self, 'alerts'):
+                for alert in self.alerts:
+                    if alert['source'] == 'Azure_Sentinel_incidents':
+                        self.ext_alert_ids.append(alert['sourceRef'])
+                if len(self.ext_alert_ids) > 0:
+                    return True
             else:
-                # case opened from an alert but
-                # not from AzureSentinel
                 return False
         else:
             return False
+
 
     def isClosedAzureSentinelCase(self):
         """
@@ -617,19 +626,27 @@ class Webhook:
         self.logger.debug('%s.isClosedAzureSentinelCase starts', __name__)
 
         try:
-            if self.isCase() and self.isClosed() and not self.isMergedInto():
+            if self.isAzureSentinel() and self.isCase() and self.isClosed():
                 # searching in alerts if the case comes from a AzureSentinel alert
-                esCaseId = self.data['objectId']
-                if self.fromAzureSentinel(esCaseId):
+                case_id = self.data['objectId']
+                if self.fromAzureSentinel(case_id):
                     return True
                 else:
                     # at this point, the case was not opened from a AzureSentinel alert
                     # however, it could be a case created from merged cases
                     # if one of the merged case is related to AzureSentinel alert
                     # then we consider the case as being from AzureSentinel
+                    # TODO: unfortunately this only provides a single alert_id, but it should
+                    # return the id for every related alert
                     if self.isFromMergedCases():
-                        for esCaseId in self.data['object']['mergeFrom']:
-                            if self.fromAzureSentinel(esCaseId):
+                        for case_id in self.data['object']['mergeFrom']:
+                            if self.fromAzureSentinel(case_id):
+                                # Remove alert_ids for merged cases as the closing mechanism is different from normal cases. 
+                                # Might be an option to do this differently
+                                if hasattr(self, 'ext_alert_id'):
+                                    delattr(self, 'ext_alert_id')
+                                if hasattr(self, 'ext_alert_ids'):
+                                    delattr(self, 'ext_alert_ids')
                                 return True
                         # went through all merged case and none where from AzureSentinel
                         return False
@@ -650,7 +667,7 @@ class Webhook:
         """
             Check if the webhook describes deleting a AzureSentinel case,
 
-            "store" the offenseId in the webhook attribute "offenseId"
+            "store" the offense_id in the webhook attribute "offense_id"
 
             :return: True if it is deleting a AzureSentinel case, False if not
             :rtype: boolean
@@ -661,8 +678,8 @@ class Webhook:
         try:
             if self.isCase() and self.isDeleted():
                 # searching in alerts if the case comes from a AzureSentinel alert
-                esCaseId = self.data['objectId']
-                if self.fromAzureSentinel(esCaseId):
+                case_id = self.data['objectId']
+                if self.fromAzureSentinel(case_id):
                     return True
                 else:
                     # at this point, the case was not opened from a AzureSentinel alert
@@ -670,8 +687,8 @@ class Webhook:
                     # if one of the merged case is related to AzureSentinel alert
                     # then we consider the case as being from AzureSentinel
                     if self.isFromMergedCases():
-                        for esCaseId in self.data['object']['mergeFrom']:
-                            if self.fromAzureSentinel(esCaseId):
+                        for case_id in self.data['object']['mergeFrom']:
+                            if self.fromAzureSentinel(case_id):
                                 return True
                         # went through all merged case and none where from AzureSentinel
                         return False
@@ -746,3 +763,86 @@ class Webhook:
         if (self.isArtifact() and self.isNew() and self.isMisp()):
             return True
         return False
+
+    def isResponsibleDisclosure(self):
+        """
+            Check if the webhook describes a Responsible disclosure alert
+
+            :return: True if it is a Responsible disclosure alert, False if not
+            :rtype: boolean
+        """
+
+        self.logger.debug('%s.isResponsibleDisclosure starts', __name__)
+
+        if ('tags' in self.data['object'] and 'Responsible disclosure' in self.data['object']['tags']):
+            return True
+        else:
+            return False
+
+    def isResponsibleDisclosureAlertImported(self):
+        """
+            Check if the webhook describes an Imported Responsible disclosure alert
+
+            :return: True if it is a Responsible disclosure alert is imported, False if not
+            :rtype: boolean
+        """
+
+        self.logger.debug('%s.isResponsibleDisclosurealertImported starts', __name__)
+
+        if (self.isImportedAlert() and self.isResponsibleDisclosure()):
+            return True
+        else:
+            return False
+
+    def isCaseAssigned(self):
+        """
+            Check if the webhook describes a case is updated with a user assignment
+
+            :return: True if the conditions are matched, False if not
+            :rtype: boolean
+        """
+        if (self.isUpdate() and self.isCase() and 'owner' in self.data['details']):
+            return True
+        else:
+            return False
+
+    def isCaseTask(self):
+        """
+            Check if the webhook describes a case task
+
+            :return: True if it is a case task, False if not
+            :rtype: boolean
+        """
+
+        self.logger.debug('%s.isCase starts', __name__)
+
+        if self.data['objectType'] == 'case_task':
+            return True
+        else:
+            return False
+
+    def isCaseTaskAssigned(self):
+        """
+            Check if the webhook describes a case task is updated with a user assignment
+
+            :return: True if the conditions are matched, False if not
+            :rtype: boolean
+        """
+        if (self.isUpdate() and self.isCaseTask() and 'owner' in self.data['details']):
+            return True
+        else:
+            return False
+
+    def isCaseEscalated(self):
+        """
+            Check if the webhook describes a case is updated with a custom field Tier
+
+            :return: True if the conditions are matched, False if not
+            :rtype: boolean
+        """
+        if (self.isUpdate() and self.isCase() and 
+            'customFields' in self.data['details'] and
+            'Tier' in self.data['details']['customFields']):
+            return True
+        else:
+            return False

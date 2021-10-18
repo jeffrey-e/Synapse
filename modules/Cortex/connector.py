@@ -21,8 +21,9 @@ class CortexConnector:
 
         url = self.cfg.get('Cortex', 'url')
         api_key = self.cfg.get('Cortex', 'api_key')
+        cert = self.cfg.get('Cortex', 'ca', fallback=True)
 
-        return Api(url, api_key)
+        return Api(url, api_key, cert)
     
     def runResponder(self, responder_id, data):
 

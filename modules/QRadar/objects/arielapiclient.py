@@ -49,12 +49,12 @@ class APIClient(RestApiClient):
         endpoint = self.endpoint_start + "searches"
         # sends a POST request to https://<server_ip>/rest/api/ariel/searches
 
-        data = {'query_expression': query_expression}
+        params = {'query_expression': query_expression}
 
-        data = urllib.parse.urlencode(data)
-        data = data.encode('utf-8')
+        # data = urllib.parse.urlencode(data)
+        # data = data.encode('utf-8')
 
-        return self.call_api(endpoint, 'POST', self.headers, data=data)
+        return self.call_api(endpoint, 'POST', self.headers, params=params)
 
     def get_search(self, search_id):
 
@@ -88,16 +88,16 @@ class APIClient(RestApiClient):
         # posts search result to site
         endpoint = self.endpoint_start + "searches/" + search_id
 
-        data = {}
+        params = {}
         if save_results:
-            data['save_results'] = save_results
+            params['save_results'] = save_results
         if status:
-            data['status'] = status
+            params['status'] = status
 
-        data = urllib.parse.urlencode(data)
-        data = data.encode('utf-8')
+        # data = urllib.parse.urlencode(data)
+        # data = data.encode('utf-8')
 
-        return self.call_api(endpoint, 'POST', self.headers, data=data)
+        return self.call_api(endpoint, 'POST', self.headers, params=params)
 
     def delete_search(self, search_id):
 

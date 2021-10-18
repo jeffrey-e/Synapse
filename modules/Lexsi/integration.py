@@ -20,18 +20,18 @@ class Integration(Main):
     def __init__(self):
         super().__init__()
         self.lexsi = LexsiConnector(self.cfg)
-        self.theHiveConnector = TheHiveConnector(self.cfg)
+        self.TheHiveConnector = TheHiveConnector(self.cfg)
 
     def validateRequest(self, request):
 
         if request.is_json:
-            self.content = request.get_json()
-            if 'type' in self.content and self.content['type'] == "Active":
-                self.workflowReport = self.allIncidents2Alert(self.content['type'])
-                if self.workflowReport['success']:
-                    return json.dumps(self.workflowReport), 200
+            content = request.get_json()
+            if 'type' in content and content['type'] == "Active":
+                workflowReport = self.allIncidents2Alert(content['type'])
+                if workflowReport['success']:
+                    return json.dumps(workflowReport), 200
                 else:
-                    return json.dumps(self.workflowReport), 500
+                    return json.dumps(workflowReport), 500
             else:
                 self.logger.error('Missing type or type is not supported')
                 return json.dumps({'sucess': False, 'message': "Missing type or type is not supported"}), 500
@@ -46,84 +46,77 @@ class Integration(Main):
         """
         self.logger.info('%s.allincident2Alert starts', __name__)
 
-        self.incidentsList = self.lexsi.getOpenItems()['result']
+        incidentsList = self.lexsi.getOpenItems()['result']
 
-        self.report = dict()
-        self.report['success'] = True
-        self.report['incidents'] = list()
+        report = dict()
+        report['success'] = True
+        report['incidents'] = list()
 
         try:
             # each incidents in the list is represented as a dict
             # we enrich this dict with additional details
-            for incident in self.incidentsList:
+            for incident in incidentsList:
 
                 # Prepare new alert
-                self.incident_report = dict()
+                incident_report = dict()
                 self.logger.debug("incident: %s" % incident)
 
-                self.theHiveAlert = self.IncidentToHiveAlert(incident)
+                theHiveAlert = self.IncidentToHiveAlert(incident)
 
                 # searching if the incident has already been converted to alert
-                self.query = dict()
-                self.query['sourceRef'] = str(incident['incident'])
+                query = dict()
+                query['sourceRef'] = str(incident['incident'])
                 self.logger.info('Looking for incident %s in TheHive alerts', str(incident['incident']))
-                self.results = self.theHiveConnector.findAlert(self.query)
-                if len(self.results) == 0:
+                results = self.TheHiveConnector.findAlert(query)
+                if len(results) == 0:
                     self.logger.info('incident %s not found in TheHive alerts, creating it', str(incident['incident']))
                     try:
 
-                        self.theHiveEsAlertId = self.theHiveConnector.createAlert(self.theHiveAlert)['id']
-                        self.theHiveConnector.promoteCaseToAlert(self.theHiveEsAlertId)
+                        theHiveEsAlertId = self.TheHiveConnector.createAlert(theHiveAlert)['id']
+                        self.TheHiveConnector.promoteAlertToCase(theHiveEsAlertId)
 
-                        self.incident_report['raised_alert_id'] = self.theHiveEsAlertId
-                        self.incident_report['lexsi_incident_id'] = incident['incident']
-                        self.incident_report['success'] = True
+                        incident_report['raised_alert_id'] = theHiveEsAlertId
+                        incident_report['lexsi_incident_id'] = incident['incident']
+                        incident_report['success'] = True
 
                     except Exception as e:
-                        self.logger.error(self.incident_report)
+                        self.logger.error(incident_report)
                         self.logger.error('%s.allincident2Alert failed', __name__, exc_info=True)
-                        self.incident_report['success'] = False
+                        incident_report['success'] = False
                         if isinstance(e, ValueError):
                             errorMessage = json.loads(str(e))['message']
-                            self.incident_report['message'] = errorMessage
+                            incident_report['message'] = errorMessage
                         else:
-                            self.incident_report['message'] = str(e) + ": Couldn't raise alert in TheHive"
-                        self.incident_report['incident_id'] = incident['incident']
+                            incident_report['message'] = str(e) + ": Couldn't raise alert in TheHive"
+                        incident_report['incident_id'] = incident['incident']
                         # Set overall success if any fails
-                        self.report['success'] = False
+                        report['success'] = False
 
-                    self.report['incidents'].append(self.incident_report)
                 else:
                     self.logger.info('incident %s already imported as alert, checking for updates', str(incident['incident']))
-                    self.alert_found = self.results[0]
+                    alert_found = results[0]
 
-                    # Check if alert is already created, but needs updating
-                    if self.check_if_updated(self.alert_found, vars(self.theHiveAlert)):
-                        self.logger.info("Found changes for %s, updating alert" % self.alert_found['id'])
-
-                        # update alert
-                        self.theHiveConnector.updateAlert(self.alert_found['id'], self.theHiveAlert, fields=["tags", "artifacts"])
-
+                    if self.TheHiveConnector.checkForUpdates(theHiveAlert, alert_found, str(incident['incident'])):
                         # Mark the alert as read
-                        self.theHiveConnector.markAlertAsRead(self.alert_found['id'])
-
-                        self.incident_report['updated_alert_id'] = self.alert_found['id']
-                        self.incident_report['lexsi_incident_id'] = incident['incident']
-                        self.incident_report['success'] = True
+                        self.TheHiveConnector.markAlertAsRead(alert_found['id'])
+                        incident_report['updated_alert_id'] = alert_found['id']
+                        incident_report['sentinel_incident_id'] = str(incident['incident'])
+                        incident_report['success'] = True
                     else:
-                        self.logger.info("No changes found for %s" % self.alert_found['id'])
-                        continue
+                        incident_report['sentinel_incident_id'] = str(incident['incident'])
+                        incident_report['success'] = True
+                report['incidents'].append(incident_report)
 
-            self.thehiveAlerts = self.lexsi_opened_alerts_thehive()
-            self.set_alert_status_ignored(self.incidentsList)
+            thehiveAlerts, open_lexsi_cases = self.lexsi_opened_alerts_thehive()
+            self.set_alert_status_ignored(incidentsList, thehiveAlerts, open_lexsi_cases)
 
         except Exception as e:
 
             self.logger.error('Failed to create alert from Lexsi incident (retrieving incidents failed)', exc_info=True)
-            self.report['success'] = False
-            self.report['message'] = "%s: Failed to create alert from incident" % str(e)
+            report['success'] = False
+            report['message'] = "%s: Failed to create alert from incident" % str(e)
 
-        return self.report
+        return report
 
     def IncidentToHiveAlert(self, incident):
 
@@ -132,30 +125,30 @@ class Integration(Main):
         #
 
         # Setup Tags
-        self.tags = ['Lexsi', 'incident', 'Synapse']
+        tags = ['Lexsi', 'incident', 'Synapse']
 
         # Skip for now
-        self.artifacts = []
+        artifacts = []
 
         # Retrieve the configured case_template
-        self.CaseTemplate = self.cfg.get('Lexsi', 'case_template')
+        CaseTemplate = self.cfg.get('Lexsi', 'case_template')
 
         # Build TheHive alert
-        self.alert = self.theHiveConnector.craftAlert(
+        alert = self.TheHiveConnector.craftAlert(
             "{}: {}".format(incident['incident'], incident['title']),
             self.craftAlertDescription(incident),
             self.getHiveSeverity(incident),
             self.timestamp_to_epoch(incident['detected'], "%Y-%m-%d %H:%M:%S"),
-            self.tags,
+            tags,
             2,
             'New',
             'internal',
             'Lexsi',
             str(incident['incident']),
-            self.artifacts,
-            self.CaseTemplate)
+            artifacts,
+            CaseTemplate)
 
-        return self.alert
+        return alert
 
     def craftAlertDescription(self, incident):
         """
@@ -165,10 +158,10 @@ class Integration(Main):
         self.logger.debug('craftAlertDescription starts')
 
         # Start empty
-        self.description = ""
+        description = ""
 
         # Add incident details table
-        self.description += (
+        description += (
             '#### Summary\n\n' +
             '|                         |               |\n' +
             '| ----------------------- | ------------- |\n' +
@@ -180,10 +173,10 @@ class Integration(Main):
             '| **Detected**        | ' + str(incident['detected']) + ' |\n' +
             '| **Source**        | ' + str(incident['source']) + ' |\n' +
             '| **Analyst Name(Lexsi)**        | ' + str(incident['analystName']) + ' |\n' +
-            '| **Link to Orange Portal**        | ' + str("https://cert.orangecyberdefense.com/#cyb/alerts/{}".format(incident['incident'])) + ' |\n' +
+            '| **Link to Orange Portal**        | ' + str("https://portal.cert.orangecyberdefense.com/cybercrime/{}".format(incident['id'])) + ' |\n' +
             '\n\n\n\n')
 
-        return self.description
+        return description
 
     def timestamp_to_epoch(self, date_time, pattern):
         return int(time.mktime(time.strptime(date_time, pattern))) * 1000
@@ -197,58 +190,60 @@ class Integration(Main):
         #    return 2
         # elif int(incident['severity']) in {4,5}:
         #    return 3
+        else:
+            return 2
 
     def lexsi_opened_alerts_thehive(self):
-        self.thehiveAlerts = []
-        self.open_lexsi_cases = {}
-        self.query = In('tags', ['Lexsi'])
+        thehiveAlerts = []
+        open_lexsi_cases = {}
+        query = In('tags', ['Lexsi'])
 
         self.logger.info('Looking for incident in TheHive alerts with tag Lexsi')
-        # self.logger.info(self.query)
-        self.results = self.theHiveConnector.findAlert(self.query)
-        for alert_found in self.results:
+        # self.logger.info(query)
+        results = self.TheHiveConnector.findAlert(query)
+        for alert_found in results:
             # Check if a case is linked
             if 'case' in alert_found:
                 try:
-                    self.case_found = self.theHiveConnector.getCase(alert_found['case'])
+                    case_found = self.TheHiveConnector.getCase(alert_found['case'])
                     # Check if the status is open. Only then append it to the list
-                    if self.case_found['status'] == "Open":
-                        self.open_lexsi_cases[alert_found['sourceRef']] = self.case_found
-                        self.thehiveAlerts.append(alert_found['sourceRef'])
+                    if case_found['status'] == "Open":
+                        open_lexsi_cases[alert_found['sourceRef']] = case_found
+                        thehiveAlerts.append(alert_found['sourceRef'])
                 except Exception as e:
                     self.logger.error("Could not find case: {}".format(e), exc_info=True)
                     continue
-        self.logger.debug("Lexsi Alerts opened in theHive: {}".format(self.thehiveAlerts))
-        return self.thehiveAlerts
+        self.logger.debug("Lexsi Alerts opened in theHive: {}".format(thehiveAlerts))
+        return thehiveAlerts, open_lexsi_cases
 
     def compare_lists(self, list1, list2):
         return list(set(list1) - set(list2))
 
-    def set_alert_status_ignored(self, incidentsList):
-        self.lexsi_reporting = []
-        # self.incidentsList = self.lexsi.getOpenItems()['result']
+    def set_alert_status_ignored(self, incidentsList, thehiveAlerts, open_lexsi_cases):
+        lexsi_reporting = []
+        # incidentsList = self.lexsi.getOpenItems()['result']
 
         for incident in incidentsList:
-            self.lexsi_reporting.append(incident['incident'])
+            lexsi_reporting.append(incident['incident'])
 
-        self.logger.debug("the list of opened Lexsi Incidents: {}".format(self.lexsi_reporting))
-        self.uncommon_elements = self.compare_lists(self.thehiveAlerts, self.lexsi_reporting)
-        # self.uncommon_elements=['476121']
-        self.logger.debug("Open cases present in TheHive but not in list of opened Lexsi Incidents: {}".format((self.uncommon_elements)))
+        self.logger.debug("the list of opened Lexsi Incidents: {}".format(lexsi_reporting))
+        uncommon_elements = self.compare_lists(thehiveAlerts, lexsi_reporting)
+        # uncommon_elements=['476121']
+        self.logger.debug("Open cases present in TheHive but not in list of opened Lexsi Incidents: {}".format((uncommon_elements)))
 
-        for element in self.uncommon_elements:
+        for element in uncommon_elements:
             self.logger.info("Preparing to close the case for {}".format(element))
-            self.query = dict()
-            self.query['sourceRef'] = str(element)
+            query = dict()
+            query['sourceRef'] = str(element)
             self.logger.debug('Looking for incident %s in TheHive alerts', str(element))
             try:
-                if element in self.open_lexsi_cases:
+                if element in open_lexsi_cases:
                     # Resolve the case
-                    self.case_id = self.open_lexsi_cases[element]['id']
-                    self.logger.debug("Case id for element {}: {}".format(element, self.case_id))
+                    case_id = open_lexsi_cases[element]['id']
+                    self.logger.debug("Case id for element {}: {}".format(element, case_id))
                     self.logger.debug("Preparing to resolve the case")
-                    self.theHiveConnector.closeCase(self.case_id)
-                    self.logger.debug("Closed case with id {} for {}".format(self.case_id, element))
+                    self.TheHiveConnector.closeCase(case_id)
+                    self.logger.debug("Closed case with id {} for {}".format(case_id, element))
 
             except Exception as e:
                 self.logger.error("Could not close case: {}".format(e), exc_info=True)

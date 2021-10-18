@@ -2,18 +2,12 @@
 # -*- coding: utf8 -*-
 
 # QRadar API requirements
-from urllib.error import HTTPError
-from urllib.error import URLError
 from urllib.parse import quote
-from urllib.request import Request
-from urllib.request import urlopen
-from urllib.request import install_opener
-from urllib.request import build_opener
-from urllib.request import HTTPSHandler
-from urllib.request import ProxyHandler
 import ssl
 import sys
 import base64
+import requests
+import logging
 
 # QRadar API from https://github.com/ibm-security-intelligence/api-samples
 # This is a simple HTTP client that can be used to access the REST API
@@ -21,67 +15,25 @@ class RestApiClient:
 
     # Constructor for the RestApiClient Class
     def __init__(self, server_ip, auth_token, certificate_file, certificate_verification, version, **kwargs):
+        self.logger = logging.getLogger(__name__)
 
-
-        self.headers = {'Accept': 'application/json'}
+        self.headers = {}
         self.headers['SEC'] = str(auth_token)
         self.server_ip = str(server_ip)
         self.headers['Version'] = str(version)
         self.base_uri = '/api/'
-        #Create proxy config when proxy is provided
+        # Create proxy config when proxy is provided
         self.http_proxy = kwargs.get('http_proxy', None)
         self.https_proxy = kwargs.get('https_proxy', None)
 
-        # Create a secure SSLContext
-        # PROTOCOL_SSLv23 is misleading.  PROTOCOL_SSLv23 will use the highest
-        # version of SSL or TLS that both the client and server supports.
-        context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-
-        # SSL version 2 and SSL version 3 are insecure. The insecure versions
-        # are disabled.
-        try:
-            context.options = ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
-        except ValueError as e:
-            # Disabling SSLv2 and SSLv3 is not supported on versions of OpenSSL
-            # prior to 0.9.8m.
-            print("WARNING: Unable to disable SSLv2 and SSLv3. Caused by exception " + str(e) + '"')
-            sys.exit(1)
-
         if certificate_verification == "enabled":
-            context.verify_mode = ssl.CERT_REQUIRED
-            if sys.version_info >= (3, 4):
-                context.check_hostname = True
-
-            check_hostname = True
-            certificate_file = certificate_file
-            if certificate_file is not None:
-                # Load the certificate if the user has specified a certificate
-                # file in config.ini.
-
-                # The default QRadar certificate does not have a valid hostname,
-                # so me must disable hostname checking.
-                if sys.version_info >= (3, 4):
-                    context.check_hostname = False
-                check_hostname = False
-
-                # Instead of loading the default certificates load only the
-                # certificates specified by the user.
-                context.load_verify_locations(cafile=certificate_file)
-
-            install_opener(build_opener(
-                HTTPSHandler(context=context, check_hostname=check_hostname)))
+            self.certs = certificate_file
         else:
-            context.verify_mode = ssl.CERT_NONE
-            context.check_hostname = False
-            check_hostname = False
-            install_opener(build_opener(
-                HTTPSHandler(context=context, check_hostname=check_hostname)))
+            self.certs = False
 
     # This method is used to set up an HTTP request and send it to the server
     def call_api(self, endpoint, method, headers=None, params=[], data=None,
                  print_request=False):
-
-        path = self.parse_path(endpoint, params)
 
         # If the caller specified customer headers merge them with the default
         # headers.
@@ -89,45 +41,42 @@ class RestApiClient:
         if headers is not None:
             for header_key in headers:
                 actual_headers[header_key] = headers[header_key]
+        merged_headers = actual_headers
 
-        # Send the request and receive the response
-        request = Request(
-            'https://' + self.server_ip + self.base_uri + path,
-            headers=actual_headers)
-        #load optional proxy conf
-        request.set_proxy(self.http_proxy, "http")
-        request.set_proxy(self.https_proxy, "https")
-        
-        request.get_method = lambda: method
+        path = self.parse_path(endpoint, params)
 
-        # Print the request if print_request is True.
-        if print_request:
-            SampleUtilities.pretty_print_request(self, path, method,
-                                                 headers=actual_headers)
+        url = 'https://' + self.server_ip + self.base_uri + path
+
+        proxies = {
+            'http': self.http_proxy,
+            'https': self.https_proxy
+        }
+
+        self.logger.debug("Received the following request to perform: {}".format(url))
+        if data:
+            self.logger.debug("Received the following request body: {}".format(data))
 
         try:
-            response = urlopen(request, data)
-
-            response_info = response.info()
-            if 'Deprecated' in response_info:
-
-                # This version of the API is Deprecated. Print a warning to
-                # stderr.
-                print("WARNING: " + response_info['Deprecated'],
-                      file=sys.stderr)
-
-            # returns response object for opening url.
-            return response
-        except HTTPError as e:
-            # an object which contains information similar to a request object
-            return e
-        except URLError as e:
-            if (isinstance(e.reason, ssl.SSLError) and
-                    e.reason.reason == "CERTIFICATE_VERIFY_FAILED"):
-                print("Certificate verification failed.")
-                sys.exit(3)
+            response = requests.request(method, url, headers=merged_headers, json=data, proxies=proxies, verify=self.certs, timeout=60)
+            if (response.status_code in [200, 201]):
+                self.logger.debug("the following response was received: {}".format(response.json()))
+                return response
+            elif response.status_code == 401:
+                raise ConnectionRefusedError(response.content)
+            # Retrieve alert information. Added a workaround to fix the delay in alert entity retrieval that causes a not found error sometimes
+            elif response.status_code == 404:
+                raise ValueError(response.content)
             else:
-                raise e
+                raise QRadarUnhandledReturnCode
+        except ValueError as e:
+            self.logger.error('QRadar returned http {} with the following body: {}'.format(response.status_code, e))
+            raise QRadarError
+        except ConnectionRefusedError as e:
+            self.logger.error("QRadar request failed with code 401: {}".format(e))
+            raise QRadarError
+        except Exception as e:
+            self.logger.error("Could not retrieve data from QRadar: {}".format(e), exc_info=True)
+            raise QRadarError
 
     # This method constructs the query string
     def parse_path(self, endpoint, params):
@@ -157,3 +106,12 @@ class RestApiClient:
 
     def get_base_uri(self):
         return self.base_uri
+
+### Error Handling classes
+
+class QRadarError(Exception):
+    """Raised when there is generic error with QRadar"""
+    pass
+class QRadarUnhandledReturnCode(Exception):
+    """Raised when there is an unexpected return code with QRadar"""
+    pass

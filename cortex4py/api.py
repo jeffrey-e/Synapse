@@ -65,7 +65,8 @@ class Api(object):
                                     headers=headers,
                                     params=params,
                                     proxies=self.__proxies,
-                                    verify=self.__verify_cert)
+                                    verify=self.__verify_cert,
+                                    timeout=60)
 
             response.raise_for_status()
             return response
@@ -83,6 +84,7 @@ class Api(object):
                                      proxies=self.__proxies,
                                      data=data,
                                      verify=self.__verify_cert,
+                                     timeout=60,
                                      **kwargs)
             response.raise_for_status()
             return response
@@ -102,6 +104,7 @@ class Api(object):
                                      json=data,
                                      params=params,
                                      verify=self.__verify_cert,
+                                     timeout=60,
                                      **kwargs)
             response.raise_for_status()
             return response
@@ -120,7 +123,8 @@ class Api(object):
                                       proxies=self.__proxies,
                                       json=data,
                                       params=params,
-                                      verify=self.__verify_cert)
+                                      verify=self.__verify_cert,
+                                      timeout=60)
             response.raise_for_status()
             return response
         except Exception as ex:
@@ -135,7 +139,8 @@ class Api(object):
             response = requests.delete('{}{}'.format(self.__base_url, endpoint),
                                        headers=headers,
                                        proxies=self.__proxies,
-                                       verify=self.__verify_cert)
+                                       verify=self.__verify_cert,
+                                       timeout=60)
             response.raise_for_status()
             return True
         except Exception as ex:
