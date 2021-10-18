@@ -56,7 +56,7 @@ class MLabsConnector:
         self.logger.debug('%s.scan starts', __name__)
 
         try:
-            graph_data = requests.get(link_to_load, headers={'Authorization': 'Bearer ' + self.token, 'Prefer': 'outlook.body-content-type=text'}, verify=False, proxies=self.proxies).json()
+            graph_data = requests.get(link_to_load, headers={'Authorization': 'Bearer ' + self.token, 'Prefer': 'outlook.body-content-type=text'}, verify=False, proxies=self.proxies, timeout=60).json()
             emails = graph_data['value']
             next_link = ""
             if '@odata.nextLink' in graph_data:

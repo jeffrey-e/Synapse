@@ -76,7 +76,8 @@ class LexsiConnector:
             r = requests.get(self.url + "/api/cyb/alerts/listcybercrimefilter/?" + urllib.parse.urlencode(data),
                              cookies=self.__cookiejar,
                              proxies=self.proxies,
-                             verify=False)
+                             verify=False,
+                             timeout=60)
             r.raise_for_status()
         except requests.RequestException as e:
             self.logger.error("Failed alert retrieval with error {}".format(e))

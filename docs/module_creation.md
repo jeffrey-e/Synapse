@@ -146,10 +146,10 @@ def getOffenses(self, timerange):
                 query, 'GET')
         
             try:
-                response_text = response.read().decode('utf-8')
+                response_text = response.text
                 response_body = json.loads(response_text)
 
-                if (response.code == 200):
+                if (response.status_code == 200):
                     return response_body
                 else:
                     raise ValueError(json.dumps(
@@ -159,7 +159,7 @@ def getOffenses(self, timerange):
 
             except ValueError as e:
                 self.logger.error('%s.getOffenses failed, api call returned http %s',
-                    __name__, str(response.code))
+                    __name__, str(response.status_code))
                 raise
 
         except Exception as e:
@@ -268,18 +268,18 @@ def qradarOffenseToHiveAlert(offense):
     artifacts = []
     for artifact in offense['artifacts']:
         if artifact['dataType'] in defaultObservableDatatype:
-            hiveArtifact = theHiveConnector.craftAlertArtifact(dataType=artifact['dataType'], data=artifact['data'], message=artifact['message'], tags=artifact['tags'])
+            hiveArtifact = TheHiveConnector.craftAlertArtifact(dataType=artifact['dataType'], data=artifact['data'], message=artifact['message'], tags=artifact['tags'])
         else:
             artifact_tags = list()
             artifact_tags.append('type:' + artifact['dataType'])
-            hiveArtifact = theHiveConnector.craftAlertArtifact(dataType='other', data=artifact['data'], message=artifact['message'], tags=tags)
+            hiveArtifact = TheHiveConnector.craftAlertArtifact(dataType='other', data=artifact['data'], message=artifact['message'], tags=tags)
         artifacts.append(hiveArtifact)
 
     #Retrieve the configured case_template
     qradarCaseTemplate = cfg.get('QRadar', 'case_template')
         
     # Build TheHive alert
-    alert = theHiveConnector.craftAlert(
+    alert = TheHiveConnector.craftAlert(
         "{}, {}".format(offense['id'], offense['description']),
         craftAlertDescription(offense),
         getHiveSeverity(offense),
@@ -299,7 +299,7 @@ Feel free to look at other modules to see how this can be achieved. I always try
 When you have an Alert model that contains all the right data you can use TheHive module `connector.py` to import the function that can create the Alert.
 
 ```
-theHiveEsAlertId = theHiveConnector.createAlert(theHiveAlert)['id']
+theHiveEsAlertId = TheHiveConnector.createAlert(theHiveAlert)['id']
 ```
 
 Finally you can work on the response the API request will receive. This can be returned in the function that is triggered by the `validateRequest` function. within the `validateRequest` function the return value should be parsed through `json.dumps()` and in the following format: `json.dumps(<return info>), <HTTP status code>`. You can refer to the QRadar example in this document. 

@@ -2,17 +2,8 @@
 # -*- coding: utf8 -*-
 
 import logging
-import requests
-import re
-import json
-import time
-import base64
 import sys
 import os
-from datetime import datetime, timezone
-from dateutil import tz
-from collections import OrderedDict
-from multiprocessing import Process, Queue
 
 module_path = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(module_path + "/splunklib")

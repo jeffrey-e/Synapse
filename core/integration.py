@@ -1,10 +1,7 @@
 import ipaddress
-import itertools
 import logging
 import re
 from core.functions import getConf
-from datetime import datetime, timezone, timedelta
-from jinja2 import Template, Environment, meta
 
 class Main():
     def __init__(self):
@@ -19,58 +16,12 @@ class Main():
                 self.regex = re.compile(extraction_regex)
                 self.logger.debug("offense: %s" % dict[field_name])
                 self.matches.extend(self.regex.findall(str(dict[field_name])))
+                self.matches = list(dict.fromkeys(self.matches))
         if len(self.matches) > 0:
             self.logger.debug("matches: %s" % self.matches)
             return self.matches
         else:
             return []
-
-    def check_if_updated(self, current_a, new_a):
-        # Function to check if the alert that has been created contains new/different data in comparison to the alert that is present
-        self.logger.debug("Current alert %s" % current_a)
-        self.logger.debug("New alert %s" % new_a)
-        for item in sorted(new_a):
-            # Skip values that are not required for the compare
-            if item == "date":
-                continue
-            # Artifacts require special attention as these are all separate objects in an array for a new alert. The current alert is a array of dicts
-            if item == "artifacts":
-                # If the array is of different size an update is required
-                if not len(current_a[item]) == len(new_a[item]):
-                    self.logger.info("Length mismatch detected: old length:%s, new length: %s" % (len(current_a[item]), len(new_a[item])))
-                    return True
-
-                # loop through the newly created alert array to extract the artifacts and add them so a separate variable
-                for i in range(len(new_a[item])):
-                    self.vars_current_artifacts = current_a[item][i]
-                    self.vars_new_artifacts = vars(new_a[item][i])
-
-                    # For each artifact loop through the attributes to check for differences
-                    for attribute in self.vars_new_artifacts:
-                        if self.vars_current_artifacts[attribute] != self.vars_new_artifacts[attribute]:
-                            self.logger.debug("Change detected for %s, new value: %s" % (self.vars_current_artifacts[attribute], self.vars_new_artifacts[attribute]))
-                            self.logger.debug("old: %s, new: %s" % (self.vars_current_artifacts, self.vars_new_artifacts))
-                            return True
-
-                # loop through the newly created alert array to extract the artifacts and add them so a separate variable
-                # self.diff = list(itertools.filterfalse(lambda x: x in vars(new_a['artifacts']), current_a['artifacts']))
-                # if len(self.diff) > 0:
-                #     self.logger.debug("Found diff in artifacts: %s" % self.diff)
-                #     return True
-
-            if item == "tags":
-                # loop through the newly created alert array to extract the tags and add them so a separate variable
-                self.diff = list(itertools.filterfalse(lambda x: x in new_a['tags'], current_a['tags']))
-                self.diff = self.diff + list(itertools.filterfalse(lambda x: x in current_a['tags'], new_a['tags']))
-                if len(self.diff) > 0:
-                    self.logger.debug("Found diff in tags: %s" % self.diff)
-                    return True
-
-            # Match other items of the new alert to the current alert (string based)
-            # if str(current_a[item]) != str(new_a[item]):
-                # self.logger.debug("Change detected for %s, new value: %s" % (item,str(new_a[item])))
-                # return True
-        return False
 
     def checkObservableTLP(self, artifacts):
         self.artifacts = []
@@ -176,3 +127,53 @@ class Main():
             return self.artifacts
         else:
             return artifacts
+
+    def checkIfInClosedCaseOrAlertMarkedAsRead(self, sourceref):
+        query = dict()
+        query['sourceRef'] = str(sourceref)
+        self.logger.debug('Checking if third party ticket({}) is linked to a closed case'.format(sourceref))
+        alert_results = self.TheHiveConnector.findAlert(query)
+        if len(alert_results) > 0:
+            alert_found = alert_results[0]
+            if alert_found['status'] == 'Ignored':
+                self.logger.info(f"{sourceref} is found in alert {alert_found['id']} that has been marked as read")
+                return {"resolutionStatus": "Indeterminate", "summary": "Closed by Synapse with summary: Marked as Read within The Hive"}
+            elif 'case' in alert_found:
+                # Check if alert is present in closed case
+                case_found = self.TheHiveConnector.getCase(alert_found['case'])
+                if case_found['status'] == "Resolved":
+                    if case_found['resolutionStatus'] != "Duplicated":
+                        self.logger.info(f"{sourceref} was found in a closed case {case_found['id']}")
+                        resolution_status = "N/A"
+                        resolution_summary = "N/A"
+                        # Return information required to sync with third party
+                        if 'resolutionStatus' in case_found:
+                            resolution_status = case_found['resolutionStatus']
+                        if 'summary' in case_found:
+                            resolution_summary = case_found['summary']
+                        return {"resolutionStatus": resolution_status, "summary": resolution_summary}
+                    else:
+                        self.logger.info(f"{sourceref} was found in a duplicated case {case_found['id']}")
+                        merged_case_found = self.getFinalMergedCase(case_found)
+                        if merged_case_found['status'] == "Resolved":
+                            if 'resolutionStatus' in merged_case_found:
+                                resolution_status = merged_case_found['resolutionStatus']
+                            if 'summary' in merged_case_found:
+                                resolution_summary = merged_case_found['summary']
+                            return {"resolutionStatus": resolution_status, "summary": resolution_summary}
+        return False
+
+    def getFinalMergedCase(self, duplicated_case, handled_cases=[]):
+        # Match on duplicated cases
+        if 'mergeInto' in duplicated_case:
+            merged_into = duplicated_case['mergeInto']
+            case_found = self.TheHiveConnector.getCase(merged_into)
+            if 'resolutionStatus' in case_found:
+                if case_found['resolutionStatus'] == "Duplicated" and merged_into not in handled_cases:
+                    handled_cases.append(merged_into)
+                    case_found = self.getFinalMergedCase(case_found, handled_cases)
+        # Match on other cases
+        else:
+            # Add the duplicated_case when no further merges are found
+            case_found = duplicated_case
+        return case_found

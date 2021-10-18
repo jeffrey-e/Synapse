@@ -34,7 +34,7 @@ def connectEws():
         folder_name = cfg.get('EWS', 'folder_name')
         unread = ewsConnector.scan(folder_name)
 
-        theHiveConnector = TheHiveConnector(cfg)
+        TheHiveConnector = TheHiveConnector(cfg)
 
         for msg in unread:
             #type(msg)
@@ -43,7 +43,7 @@ def connectEws():
             
             #searching if case has already been created from the email
             #conversation
-            esCaseId = theHiveConnector.searchCaseByDescription(conversationId)
+            esCaseId = TheHiveConnector.searchCaseByDescription(conversationId)
 
             if esCaseId is None:
                 #no case previously created from the conversation
@@ -59,17 +59,17 @@ def connectEws():
                 else:
                     assignee = 'synapse'
 
-                case = theHiveConnector.craftCase(caseTitle, caseDescription)
-                createdCase = theHiveConnector.createCase(case)
-                caseUpdated = theHiveConnector.assignCase(createdCase, assignee)
+                case = TheHiveConnector.craftCase(caseTitle, caseDescription)
+                createdCase = TheHiveConnector.createCase(case)
+                caseUpdated = TheHiveConnector.assignCase(createdCase, assignee)
 
-                commTask = theHiveConnector.craftCommTask()
+                commTask = TheHiveConnector.craftCommTask()
                 esCaseId = caseUpdated.id
-                commTaskId = theHiveConnector.createTask(esCaseId, commTask)
+                commTaskId = TheHiveConnector.createTask(esCaseId, commTask)
 
             else:
                 #case previously created from the conversation
-                commTaskId = theHiveConnector.getTaskIdByTitle(
+                commTaskId = TheHiveConnector.getTaskIdByTitle(
                     esCaseId, 'Communication')
 
                 if commTaskId != None:
@@ -77,12 +77,12 @@ def connectEws():
                 else:
                     #case already exists but no Communication task found
                     #creating comm task
-                    commTask = theHiveConnector.craftCommTask()
-                    commTaskId = theHiveConnector.createTask(esCaseId, commTask) 
+                    commTask = TheHiveConnector.craftCommTask()
+                    commTaskId = TheHiveConnector.createTask(esCaseId, commTask) 
 
             fullBody = getEmailBody(msg)
-            taskLog = theHiveConnector.craftTaskLog(fullBody)
-            createdTaskLogId = theHiveConnector.addTaskLog(commTaskId, taskLog)
+            taskLog = TheHiveConnector.craftTaskLog(fullBody)
+            createdTaskLogId = TheHiveConnector.addTaskLog(commTaskId, taskLog)
 
             readMsg = ewsConnector.markAsRead(msg)
 
@@ -106,7 +106,7 @@ def connectEws():
                     comment += ' with subject: <'
                     comment += msg.subject
                     comment += '>'
-                    theHiveConnector.addFileObservable(esCaseId,
+                    TheHiveConnector.addFileObservable(esCaseId,
                         tmpFilepath,
                         comment)
 
@@ -118,7 +118,7 @@ def connectEws():
                             tempAttachmentLvl2 = TempAttachment(attachmentLvl2)
                             tmpFilepath = tempAttachmentLvl2.writeFile()
                             comment = 'Attachment from the email attached'
-                            theHiveConnector.addFileObservable(esCaseId,
+                            TheHiveConnector.addFileObservable(esCaseId,
                                 tmpFilepath,
                                 comment)
         

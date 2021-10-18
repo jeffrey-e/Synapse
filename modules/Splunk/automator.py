@@ -1,4 +1,3 @@
-
 import logging
 import re
 from core.modules import Main
@@ -29,7 +28,7 @@ class Automators(Main):
             pass
         else:
             return False
-        
+
         #Define variables and actions based on certain webhook types
         #Alerts
         if webhook.isNewAlert():
@@ -45,7 +44,9 @@ class Automators(Main):
             self.supported_query_type = 'search_queries'
             if self.supported_query_type in action_config:
                 self.query_config = action_config[self.supported_query_type]
-
+            else:
+                self.logger.debug("Search query config not found for the Imported Alert")
+                return False
 
         self.query_variables = {}
         self.query_variables['input'] = {}
@@ -55,7 +56,7 @@ class Automators(Main):
             try:
                 self.logger.info('Found the following query: %s' % (query_name))
                 self.query_variables[query_name] = {}
-                
+
                 #Render query
                 try:
                     #Prepare the template
@@ -69,16 +70,26 @@ class Automators(Main):
                     self.logger.debug("Found the following variables in query: {}".format(self.template_vars))
 
                     for template_var in self.template_vars:
-                        
+
                         #Skip dynamically generated Stop_time variable
                         if template_var == "Stop_Time":
                             continue
-                        
+
                         self.logger.debug("Looking up variable required for template: {}".format(template_var))
                         #Replace the underscore from the variable name to a white space as this is used in the description table
                         self.template_var_with_ws = template_var.replace("_", " ")
-                        self.query_variables['input'][template_var] = self.TheHiveAutomators.fetchValueFromDescription(webhook,self.template_var_with_ws)
                         
+                        try:
+                            self.alert_data=  self.TheHiveConnector.getAlert(self.alert_id)
+                            self.logger.debug('output for get_alert: {}'.format(self.alert_data))
+                            
+                            self.query_variables['input'][template_var] = self.TheHiveAutomators.fetchValueFromMDTable(self.alert_data['description'],self.template_var_with_ws)
+                        except:
+                            self.case_data = self.TheHiveConnector.getCase(self.case_id)
+                            self.logger.debug('output for get_case: {}'.format(self.case_data))
+                            
+                            self.query_variables['input'][template_var] = self.TheHiveAutomators.fetchValueFromMDTable(self.case_data['description'],self.template_var_with_ws)
+
                         #Parse times required for the query (with or without offset)
                         if template_var == "Start_Time":
                             self.logger.debug("Found Start Time: %s" % self.query_variables['input']['Start_Time'])
@@ -87,7 +98,7 @@ class Automators(Main):
                                 self.query_variables['input']['Start_Time'] = self.parseTimeOffset(self.start_time, self.cfg.get('Automation', 'event_start_time_format'), query_config['start_time_offset'], self.cfg.get('Splunk', 'time_format'))
                             else:
                                 self.query_variables['input']['Start_Time'] = self.query_variables['input']['Start_Time']
-                                
+
                             if 'stop_time_offset' in query_config:
                                 self.query_variables['input']['Stop_Time'] = self.parseTimeOffset(self.start_time, self.cfg.get('Automation', 'event_start_time_format'), query_config['stop_time_offset'], self.cfg.get('Splunk', 'time_format'))
                             else:
@@ -98,7 +109,7 @@ class Automators(Main):
                 except Exception as e:
                     self.logger.warning("Could not render query due to missing variables", exc_info=True)
                     raise GetOutOfLoop
-                
+
                 #Perform queries
                 try:
                     self.query_variables[query_name]['result'] = self.SplunkConnector.query(self.query_variables[query_name]['query'])
@@ -110,18 +121,18 @@ class Automators(Main):
                 except Exception as e:
                     self.logger.warning("Could not perform query", exc_info=True)
                     raise GetOutOfLoop
-            
+
                 #Check results
                 self.logger.debug('The search result returned the following information: \n %s' % self.query_variables[query_name]['result'])
-                    
+
                 if self.supported_query_type == "search_queries":
                     #Task name
                     self.uc_task_title = query_config['task_title']
-                
+
                     self.uc_task_description = "The following information is found. Investigate the results and act accordingly:\n\n\n\n"
-                    
+
                     #create a table header
-                    self.table_header = "|" 
+                    self.table_header = "|"
                     self.rows = "|"
                     if self.results:
                         for key in self.query_variables[query_name]['result'][0].keys():
@@ -129,10 +140,10 @@ class Automators(Main):
                             self.rows = self.rows + "---|"
                         self.table_header = self.table_header + "\n" + self.rows + "\n"
                         self.uc_task_description = self.uc_task_description + self.table_header
-                        
+
                         #Create the data table for the results
                         for event in self.query_variables[query_name]['result']:
-                            self.table_data_row = "|" 
+                            self.table_data_row = "|"
                             for field_key, field_value in event.items():
                                 # Escape pipe signs
                                 if field_value:
@@ -141,22 +152,24 @@ class Automators(Main):
                                 self.table_data_row = self.table_data_row + " %s &nbsp;|" % field_value
                             self.table_data_row = self.table_data_row + "\n"
                             self.uc_task_description = self.uc_task_description + self.table_data_row
-                    else: 
+                    else:
                         self.uc_task_description = self.uc_task_description + "No results \n"
-                        
-                    
+
+
                     #Add the case task
                     self.uc_task = self.TheHiveAutomators.craftUcTask(self.uc_task_title, self.uc_task_description)
                     self.TheHiveConnector.createTask(self.case_id, self.uc_task)
 
                 if self.supported_query_type == "enrichment_queries":
+
                     if self.results:
-                        self.enrichment_result = self.query_variables[query_name]['result'][0]['enrichment_result']
+                        # making enrichment results presentable
+                        self.enrichment_result= self.TheHiveAutomators.make_it_presentable(self.query_variables[query_name]['result'][0]['enrichment_result']) 
                     else:
-                        self.enrichment_result = "N/A"
+                        self.enrichment_result = "No Results found in Splunk"
                     #Add results to description
                     try:
-                        if self.TheHiveAutomators.fetchValueFromDescription(webhook,query_name) != self.enrichment_result:
+                        if self.TheHiveAutomators.fetchValueFromMDTable(self.alert_data['description'],query_name) != self.enrichment_result:
                             self.regex_end_of_table = ' \|\\n\\n\\n'
                             self.end_of_table = ' |\n\n\n'
                             self.replacement_description = '|\n | **%s**  | %s %s' % (query_name, self.enrichment_result, self.end_of_table)
@@ -169,12 +182,12 @@ class Automators(Main):
 
             except GetOutOfLoop:
                 pass
-        
-        #Only enrichment queries need to update the alert out of the loop. The search queries will create a task within the loop
-        if self.enriched:
-            #Update Alert with the new description field
-            self.updated_alert = Alert
-            self.updated_alert.description = self.alert_description
-            self.TheHiveConnector.updateAlert(self.alert_id, self.updated_alert, ["description"])
-                
+
+           #Only enrichment queries need to update the alert out of the loop. The search queries will create a task within the loop
+            if self.enriched:
+               #Update Alert with the new description field
+               self.updated_alert = Alert
+               self.updated_alert.description = self.alert_description
+               self.TheHiveConnector.updateAlert(self.alert_id, self.updated_alert, ["description"])
+
         return True

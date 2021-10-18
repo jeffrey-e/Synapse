@@ -96,7 +96,7 @@ def validateRequest(request):
         logger.error('Not json request: %s' % request.get_data())
         return json.dumps({'sucess':False, 'message':"Request didn't contain valid JSON"}), 400
 
-def ELKToHiveAlert(theHiveConnector, alert_data):
+def ELKToHiveAlert(TheHiveConnector, alert_data):
     #
     # Creating the alert
     #
@@ -141,9 +141,9 @@ def ELKToHiveAlert(theHiveConnector, alert_data):
         found_artifact['tags'].append('type:' + found_artifact['type'])
 
         if found_artifact['type'] in defaultObservableDatatype:
-            hiveArtifact = theHiveConnector.craftAlertArtifact(dataType=found_artifact['type'], data=found_artifact['value'], message='', tags=found_artifact['tags'])
+            hiveArtifact = TheHiveConnector.craftAlertArtifact(dataType=found_artifact['type'], data=found_artifact['value'], message='', tags=found_artifact['tags'])
         else:
-            hiveArtifact = theHiveConnector.craftAlertArtifact(dataType='other', data=found_artifact['data'], message='', tags=found_artifact['tags'])
+            hiveArtifact = TheHiveConnector.craftAlertArtifact(dataType='other', data=found_artifact['data'], message='', tags=found_artifact['tags'])
         artifacts.append(hiveArtifact)
 
     #Convert timestamp to epoch
@@ -154,7 +154,7 @@ def ELKToHiveAlert(theHiveConnector, alert_data):
         epoch_start_time = timegm(time.gmtime()) * 1000
 
     # Build TheHive alert
-    alert = theHiveConnector.craftAlert(
+    alert = TheHiveConnector.craftAlert(
         alert_data['title'],
         alert_data['description'],
         1,
@@ -217,7 +217,7 @@ def ml2Alert(mlalert):
     try:
         cfg = getConf()
 
-        theHiveConnector = TheHiveConnector(cfg)
+        TheHiveConnector = TheHiveConnector(cfg)
         
         #Map the ml watcher alert to the alert that will be enhanced
         logger.info('Looking for ML Alert %s in TheHive alerts', str(mlalert['sourceRef']))
@@ -225,7 +225,7 @@ def ml2Alert(mlalert):
         #I should see if we can find a way to generate a shorter more useful sourceRef from within Synapse
         q = dict()
         q['sourceRef'] = str(mlalert['sourceRef'])
-        results = theHiveConnector.findAlert(q)
+        results = TheHiveConnector.findAlert(q)
         if len(results) == 0:
             logger.info('ML Alert %s not found in TheHive alerts, creating it', str(mlalert['sourceRef']))
             mlalert_report = dict()
@@ -239,8 +239,8 @@ def ml2Alert(mlalert):
             #enrichedAlert = enrichAlert(elkConnector, mlalert)
             
             try:
-                theHiveAlert = ELKToHiveAlert(theHiveConnector, mlalert)
-                theHiveEsAlertId = theHiveConnector.createAlert(theHiveAlert)
+                theHiveAlert = ELKToHiveAlert(TheHiveConnector, mlalert)
+                theHiveEsAlertId = TheHiveConnector.createAlert(theHiveAlert)
 
                 mlalert_report['raised_alert_id'] = theHiveEsAlertId
                 mlalert_report['ml_alert_id'] = mlalert['sourceRef']
@@ -287,7 +287,7 @@ def logstash2Alert(event):
     try:
         cfg = getConf()
 
-        theHiveConnector = TheHiveConnector(cfg)
+        TheHiveConnector = TheHiveConnector(cfg)
         
         #Map the ml watcher alert to the alert that will be enhanced
         logger.info('Looking for Logstash Alert %s in TheHive alerts', str(event['sourceRef']))
@@ -295,7 +295,7 @@ def logstash2Alert(event):
         #I should see if we can find a way to generate a shorter more useful sourceRef from within Synapse
         q = dict()
         q['sourceRef'] = str(event['sourceRef'])
-        results = theHiveConnector.findAlert(q)
+        results = TheHiveConnector.findAlert(q)
         if len(results) == 0:
             logger.info('Logstash Alert %s not found in TheHive alerts, creating it', str(event['sourceRef']))
             event_report = dict()
@@ -306,8 +306,8 @@ def logstash2Alert(event):
             #enrichedAlert = enrichAlert(elkConnector, event)
             
             try:
-                theHiveAlert = ELKToHiveAlert(theHiveConnector, event)
-                theHiveEsAlertId = theHiveConnector.createAlert(theHiveAlert)
+                theHiveAlert = ELKToHiveAlert(TheHiveConnector, event)
+                theHiveEsAlertId = TheHiveConnector.createAlert(theHiveAlert)
 
                 event_report['raised_alert_id'] = theHiveEsAlertId
                 event_report['alert_id'] = event['sourceRef']

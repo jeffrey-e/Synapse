@@ -1,20 +1,47 @@
 uc-win-001:
   automation:
-    list_create_processes_for_user:
-      task: QRadar.checkSiem
+    enrich_with_splunk:
+      task: Splunk.checkSiem
       enrichment_queries:
-          Username:
-            query: select "Local_System_User_Sysmon" as result from events where INOFFENSE('{{Offense_ID}}') LIMIT 1 START PARSEDATETIME('{{Start_Time}}');
-          Computer:
-            query: select "Computer" as result from events where INOFFENSE('{{Offense_ID}}') LIMIT 1 START PARSEDATETIME('{{Start_Time}}');
-      search_queries:
-        search_processes_for_computer:
-          task_title: Investigate found Command History for computer
           start_time_offset: 5
           stop_time_offset: -10
-          query: SELECT str(DATEFORMAT(endTime,'YYYY-MM-dd HH:mm:ss')) as Time, "Process CommandLine", "Source Process", ParentImage FROM events WHERE "Computer" = '{{Computer}}' AND qid = 2000038 ORDER BY "Time" START '{{Start_Time}}' STOP '{{Stop_Time}}';
-    create_test_task:
+          Unique Sources:
+            query: index=sample_index hostname="{{ Offense_Source }}" starttime={{Start_Time}} endtime={{Stop_Time}} | uniq clientip | head 10 | stats values(clientip) as enrichment_result
+          Proxy Status:
+            query: index=sample_index hostname="{{ Offense_Source }}" starttime={{Start_Time}} endtime={{Stop_Time}} | stats values(reason) as enrichment_result
+      search_queries:
+        search_proxy_logs:
+          task_title: Visited urls for IOC
+          start_time_offset: 5
+          stop_time_offset: -10
+          query: |
+            index=sample_index url=*"{{ Offense_Source }}"* starttime={{Start_Time}} endtime={{Stop_Time}} | table clientip, requestmethod, protocol, url, responsecode, useragent
+    run_ip_analyzers:
+      task: TheHive.runAnalyzer
+      datatypes: ["ip"]
+      blacklist:
+        ip:
+          - 10.0.0.0/8
+      cortex_instance: cortex-01
+      analyzer: VirusTotal_GetReport_3_0
+      schedule:
+        run_immediately: true
+        minutes: 2
+        repeat: 1
+    create_task_for_suspicious_or_malicious_results:
+      task: TheHive.createTaskForTaxonomyinAnalyzerResults
+      title: "Investigate suspicious/malicious IOC with id:"
+      description: "The following ioc is marked as suspicious on VirusTotal. Investigate the results and act accordingly:"
+      taxonomy_level:
+        - suspicious
+        - malicious
+    close_case_for_info_or_safe_results:
+      task: TheHive.closeCaseForTaxonomyInAnalyzerResults
+      taxonomy_level:
+        - info
+        - safe
+    basic_investigation:
       task: TheHive.createBasicTask
-      title: test
-      description: This is a test
+      title: Investigation
+      description: Write your generic findings here
   auto_create_case: false

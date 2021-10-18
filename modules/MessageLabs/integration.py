@@ -6,6 +6,9 @@ import sys
 import logging
 import json
 import time
+import hashlib
+import re
+
 
 from datetime import datetime
 from core.integration import Main
@@ -17,7 +20,7 @@ class Integration(Main):
     def __init__(self):
         super().__init__()
         self.mlabsConnector = MLabsConnector(self.cfg)
-        self.theHiveConnector = TheHiveConnector(self.cfg)
+        self.TheHiveConnector = TheHiveConnector(self.cfg)
 
     def validateRequest(self, request):
         workflowReport = self.connectMLabs()
@@ -49,30 +52,35 @@ class Integration(Main):
             unread, new_link = self.mlabsConnector.scan(link_to_load)
 
             for msg in unread:
-                if msg['subject'] != self.cfg.get('MessageLabs', 'subject_contains'):
+                self.logger.debug("Found unread E-mail with id: {}".format(msg['id']))
+                if ('@removed' in msg) or msg['subject'] != self.cfg.get('MessageLabs', 'subject_contains'):
                     continue
 
                 fullBody = msg['body']['content']
                 subject = ""
-                internalMessageId = ""
+                MIDHash = ""
+                
+                email_date = datetime.strptime(msg["receivedDateTime"], "%Y-%m-%dT%H:%M:%SZ")
+                epoch_email_date = email_date.timestamp() * 1000
 
                 for line in fullBody.splitlines():
                     if line.startswith("Subject"):
                         subject = line
                     if line.startswith("Message ID:"):
-                        internalMessageId = line.split(" ID: ")[-1]
-                    if line.startswith("Date:"):
-                        email_date = datetime.strptime(line.split("Date: ")[-1], "%a, %d %b %Y %H:%M:%S %z")
-                        epoch_email_date = email_date.timestamp() * 1000
+                        MIDHash = hashlib.md5(line.split(" ID: ")[-1].encode()).hexdigest()
 
                 caseTitle = str(self.cfg.get('MessageLabs', 'subject_contains') + " - " + str(subject))
-                caseDescription = fullBody
+                caseDescription = self.createFullBody(fullBody)
 
-                alert = self.theHiveConnector.craftAlert(caseTitle, caseDescription, 1, epoch_email_date, self.tags, 2, "New", "internal", "MessageLabs", internalMessageId, [], self.cfg.get('MessageLabs', 'case_template'))
-                try:
-                    createdCase = self.theHiveConnector.createAlert(alert)
-                except ValueError as e:
-                    self.logger.info("Alert with sourceRef '{}' already exists".format(internalMessageId))
+                alert = self.TheHiveConnector.craftAlert(caseTitle, caseDescription, 1, epoch_email_date, self.tags, 2, "New", "internal", "MessageLabs", MIDHash, [], self.cfg.get('MessageLabs', 'case_template'))
+
+                query = dict()
+                query['sourceRef'] = str(MIDHash)
+                results = self.TheHiveConnector.findAlert(query)
+
+                if len(results) == 0:
+                    createdCase = self.TheHiveConnector.createAlert(alert)
+
 
             with open(tracker_file, "w+") as tracker:
                 tracker.write(new_link)
@@ -84,3 +92,38 @@ class Integration(Main):
             self.logger.error('Connection failure', exc_info=True)
             report['success'] = False
             return report
+
+    def createFullBody(self, fullbody):
+        try:
+            r = re.findall(r".*Policy name:\s([^\n\r]*)[\r\n]+.*Subject:\s([^\n\r]*)[\r\n]+.*Sender:\s([^\n\r]*)[\r\n]+Message ID: <([^\n\r]*)>[\r\n]+Sending server IP:\s([\d\.]*)[\r\n]+Date:\s([^\n\r]*)[\r\n]+Recipient:\s(.*)Attachments:\s(.*)Matched Content:\s(.*)Message body:\s(.*)", fullbody,re.MULTILINE|re.DOTALL)
+            fields = ['Policy name', 'Subject', 'Sender', 'Message ID', 'Server IP', 'Date', 'Recipients', 'Attachments', 'Matched Content', 'E-mail body']
+            values = []
+            temp_fullbody = []
+            if len(r) > 0:
+                for it in range(0, 10):
+                    values.append(r[0][it])
+                values[3] = "<" + values[3] + ">"  # modify Message ID
+                values[6] = re.sub(r'<[^<>]*>', '', values[6].strip().replace("\r\n", " ").replace("\n", " "))  # modify Recipients, so all of them will be in 1 table field
+                values[7] = values[7].strip()  # remove empty lines/new lines from attachments
+                values[8] = values[8].strip()  # remove empty lines/new lines from matched content
+
+                # putting together the markdown table
+                temp_fullbody.append("|     |     |")
+                temp_fullbody.append("|-----|-----|")
+                for it in range(0, 9):
+                    temp_fullbody.append("|  " + fields[it] + "  |  " + values[it] + "  |")
+                temp_fullbody.append("**" + fields[9] + "**")
+                temp_fullbody.append("```")
+                temp_fullbody.append(values[9])
+                temp_fullbody.append("```")
+            else:
+                # if the email can't be parsed with the regex above, then we provide it to SOC in an unparsed way
+                temp_fullbody.append("```")
+                temp_fullbody.append("**Unparsed E-mail**")
+                temp_fullbody.append(str(fullbody))
+                temp_fullbody.append("```")
+
+            return '\r\n'.join(str(x) for x in temp_fullbody)
+
+        except Exception as e:
+            self.logger.error('Parsing error: ' + str(e), exc_info=True)
